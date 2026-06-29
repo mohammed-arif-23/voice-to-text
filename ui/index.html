@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ScribeRx Dictation Assistant</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="state-idle">
+  <div id="popup-container" class="popup-card">
+    <!-- Header / Drag Bar -->
+    <div class="popup-header">
+      <div class="brand">
+        <span class="pulse-dot"></span>
+        <span class="brand-title">ScribeRx</span>
+      </div>
+      <div class="hotkey-hint">Press Ctrl+Alt+Space to stop</div>
+    </div>
+
+    <!-- State Views -->
+    <!-- 1. Listening State -->
+    <div id="view-listening" class="state-view">
+      <div class="waveform-container">
+        <div class="bar bar-1"></div>
+        <div class="bar bar-2"></div>
+        <div class="bar bar-3"></div>
+        <div class="bar bar-4"></div>
+        <div class="bar bar-5"></div>
+      </div>
+      <div class="listening-status">Listening clinical dictation...</div>
+    </div>
+
+    <!-- 2. Processing State -->
+    <div id="view-processing" class="state-view">
+      <div class="indeterminate-bar">
+        <div class="progress-line"></div>
+      </div>
+      <div class="processing-status">Analyzing medical terminology & dosages...</div>
+    </div>
+
+    <!-- 3. Review State -->
+    <div id="view-review" class="state-view">
+      <div id="transcript-display" class="transcript-box">
+        <!-- Dynamic tokens inserted here -->
+      </div>
+
+      <!-- Low Confidence Resolution Options -->
+      <div id="alternatives-box" class="alternatives-container hidden">
+        <div class="alt-label">Select correct drug name:</div>
+        <div id="alt-chips" class="chips-row">
+          <!-- Pill buttons -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer confirmation indicator -->
+    <div class="popup-footer">
+      <span class="keyboard-nav-hint">↵ Confirm · Tab Next · Esc Cancel</span>
+    </div>
+  </div>
+
+  <script src="main.ts"></script>
+</body>
+</html>

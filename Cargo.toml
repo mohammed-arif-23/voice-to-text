@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core-hotkey",
+    "crates/core-audio",
+    "crates/stt-engine",
+    "crates/drug-match",
+    "crates/drug-db-builder",
+    "crates/storage",
+    "crates/app-shell",
+]
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.38", features = ["full"] }
+async-trait = "0.1"
+thiserror = "1.0"
+log = "0.4"

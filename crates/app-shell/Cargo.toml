@@ -1,0 +1,12 @@
+[package]
+name = "app-shell"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true }
+core-hotkey = { path = "../core-hotkey" }
+core-audio = { path = "../core-audio" }
+stt-engine = { path = "../stt-engine" }
+drug-match = { path = "../drug-match" }
+storage = { path = "../storage" }
