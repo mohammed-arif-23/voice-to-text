@@ -34,25 +34,87 @@ pub struct AdvancedDrugMatcher {
     doctor_vocab: Vec<String>,
 }
 
+pub struct DummyDrugMatcher;
+
+impl DrugMatcher for DummyDrugMatcher {
+    fn match_text(&self, raw_transcript: &str) -> MedicalCorrectionResult {
+        MedicalCorrectionResult {
+            formatted_text: raw_transcript.to_string(),
+            terms: vec![],
+            has_low_confidence: false,
+        }
+    }
+
+    fn add_doctor_vocabulary(&mut self, _drug_names: &[String]) {}
+}
+
 impl AdvancedDrugMatcher {
     pub fn new() -> Self {
         let default_drugs = vec![
-            "Amlokind".to_string(),
-            "Amlodipine".to_string(),
-            "Dolo".to_string(),
+            // Dermatology & Skin Care Vocab
+            "Salicylic".to_string(),
+            "Niacinamide".to_string(),
+            "Glycolic".to_string(),
+            "Hyaluronic".to_string(),
+            "Benzoyl".to_string(),
+            "Peroxide".to_string(),
+            "Clindamycin".to_string(),
+            "Adapalene".to_string(),
+            "Tretinoin".to_string(),
+            "Ketoconazole".to_string(),
+            "Coal".to_string(),
+            "Tar".to_string(),
+            "Acid".to_string(),
+            
+            // Painkillers & Antipyretics
             "Paracetamol".to_string(),
-            "Metformin".to_string(),
-            "Glycomet".to_string(),
-            "Telmisartan".to_string(),
-            "Telma".to_string(),
-            "Pantocid".to_string(),
-            "Pantoprazole".to_string(),
-            "Azithral".to_string(),
-            "Azithromycin".to_string(),
-            "Augmentin".to_string(),
+            "Dolo".to_string(),
+            "Ibuprofen".to_string(),
+            "Aceclofenac".to_string(),
+            "Diclofenac".to_string(),
+            "Tramadol".to_string(),
+            "Nimesulide".to_string(),
+            "Mefenamic".to_string(),
+
+            // Antibiotics & Antivirals
+            "Amoxicillin".to_string(),
             "Amoxyclav".to_string(),
+            "Azithromycin".to_string(),
+            "Azithral".to_string(),
+            "Cefixime".to_string(),
+            "Ofloxacin".to_string(),
             "Ciprofloxacin".to_string(),
             "Ciplox".to_string(),
+            "Doxycycline".to_string(),
+            "Acyclovir".to_string(),
+
+            // Gastrointestinal & Antacids
+            "Pantoprazole".to_string(),
+            "Pantocid".to_string(),
+            "Omeprazole".to_string(),
+            "Rabeprazole".to_string(),
+            "Ranitidine".to_string(),
+            "Famotidine".to_string(),
+            "Domperidone".to_string(),
+            "Ondansetron".to_string(),
+
+            // Cardiovascular & Antihypertensives
+            "Amlodipine".to_string(),
+            "Amlokind".to_string(),
+            "Telmisartan".to_string(),
+            "Telma".to_string(),
+            "Losartan".to_string(),
+            "Atorvastatin".to_string(),
+            "Rosuvastatin".to_string(),
+            "Metoprolol".to_string(),
+
+            // Allergy & Respiratory
+            "Cetirizine".to_string(),
+            "Montelukast".to_string(),
+            "Levocetirizine".to_string(),
+            "Fexofenadine".to_string(),
+            "Loratadine".to_string(),
+            "Phenylephrine".to_string(),
         ];
         Self {
             master_db: default_drugs,
@@ -179,7 +241,7 @@ impl DrugMatcher for AdvancedDrugMatcher {
 
 #[cfg(test)]
 mod tests {
-    super::*;
+    use super::*;
 
     #[test]
     fn test_drug_matching_fuzzy() {

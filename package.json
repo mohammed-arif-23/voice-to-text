@@ -1,0 +1,14 @@
+{
+  "name": "scriberx",
+  "version": "1.0.0",
+  "description": "ScribeRx Voice-to-Text Dictation Assistant",
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^1.6.0"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^1.6.0"
+  }
+}
