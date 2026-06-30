@@ -98,7 +98,10 @@ impl AmbientProcessor {
                     history_trace.push_str(line);
                     history_trace.push_str("\n");
                 }
-                if line.to_lowercase().contains("take") || line.to_lowercase().contains("prescription") {
+                if line.to_lowercase().contains("take")
+                    || line.to_lowercase().contains("prescri")  // matches "prescribe" and "prescription"
+                    || line.to_lowercase().contains("medication")
+                {
                     plan_trace.push_str(line);
                     plan_trace.push_str("\n");
                 }

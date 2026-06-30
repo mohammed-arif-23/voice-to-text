@@ -43,8 +43,10 @@ fn test_clinical_integration_flow() {
     // 6. Ambient Consultation mapping (R3)
     let dialogue = "Doctor: We will prescribe Penicillin for the infection.\nPatient: I am fine with it.";
     let soap = AmbientProcessor::process_dialogue(dialogue);
-    assert!(soap.traces.get("history").is_none()); // No cough symptoms
-    assert!(soap.traces.get("plan").is_some()); // Plan details match
+    // No cough/pain keywords → history trace should be empty
+    assert_eq!(soap.traces.get("history").map(|s| s.as_str()), Some(""));
+    // "prescribe" keyword → plan trace should be populated
+    assert!(soap.traces.get("plan").map(|s| !s.is_empty()).unwrap_or(false));
 
     // 7. Medical Coding recommendations (R4)
     let suggestions = coder.suggest_codes("Patient exhibits severe cough and body pain.");
