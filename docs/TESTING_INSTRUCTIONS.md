@@ -25,16 +25,20 @@ Ensure the target Windows development machine has the following tools installed:
 
 ## 2. Workspace Automated Test Suite
 
-Run unit tests across all workspace crates (`drug-match`, `core-audio`, `stt-engine`, `core-hotkey`, `storage`):
+Run unit and E2E integration tests across all workspace crates:
 
 ```cmd
 cargo test --workspace
 ```
 
 ### Expected Output
-- `drug-match`: Verifies Levenshtein distance calculation, dosage extraction isolation (e.g. "500 mg"), and confidence classification.
-- `core-audio`: Verifies RMS audio level feedback calculation.
-- `stt-engine`: Verifies mock transcription payload structure.
+- `drug-match`: Verifies Levenshtein matching, scoped medical vocabularies (specialty, doctor, hospital), corrections learning logic, and dosage immutability checks.
+- `core-audio`: Verifies RMS calculation, channel downmix, and sample rate conversion.
+- `core-wakeword`: Verifies state machine transitions (Armed → Wake Detected → Listening → Processing → Review → Injecting) and microphone software mute control.
+- `emr-adapter`: Verifies EMR window, active patient context validation, and voice command parser.
+- `clinical-safety`: Verifies drug allergy warnings, formulary check alerts, and SOAP note trace mappings.
+- `medical-coding`: Verifies SNOMED-CT / ICD-10 suggestions and audit logs.
+- `app-shell`: Verifies E2E clinical workflow simulation.
 
 ---
 
@@ -48,13 +52,13 @@ To verify text injection against host applications without crashing or clobberin
    cargo run --package app-shell
    ```
 2. Focus Notepad cursor inside an empty text area.
-3. Trigger dictation hotkey (`Ctrl+Alt+Space`).
-4. **Verification**: Text `"Tab Amlokind 5 mg once daily, Tab Dolo 650 if fever."` appears inside Notepad. Press `Ctrl+Z` to verify Notepad's native undo stack removes the injected text cleanly.
+3. Trigger dictation hotkey (`Ctrl+Alt+Space`) or speak "Hey ScribeRx" (if wake-word listening is enabled).
+4. **Verification**: Text appears inside Notepad. Press `Ctrl+Z` to verify Notepad's native undo stack removes the injected text cleanly.
 
 ### Test Case B: Chromium Browser EMR
 1. Open Chrome/Edge and navigate to any web-based EHR input form.
 2. Click into a `<textarea>` or contenteditable field.
-3. Trigger dictation hotkey (`Ctrl+Alt+Space`).
+3. Trigger dictation hotkey.
 4. **Verification**: Text injects accurately without lost characters or skipped dosage numbers.
 
 ---
@@ -67,4 +71,5 @@ Target metrics defined in PRD Section 5:
 |---|---|---|
 | Idle RAM | < 30 MB | Open Windows Task Manager / Process Hacker, monitor `app-shell.exe` memory working set while idle. |
 | Latency | < 3 sec on 5-sec audio | Measure timestamp from audio stop to text insertion in console logs. |
+| Wake-Word Idle CPU | < 2% | Monitor CPU utilization during "Armed" wake-word listening state. |
 | General WER | < 10% | Run `scripts/benchmark` against test audio fixtures. |

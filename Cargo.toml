@@ -8,6 +8,10 @@ members = [
     "crates/drug-db-builder",
     "crates/storage",
     "crates/app-shell",
+    "crates/core-wakeword",
+    "crates/emr-adapter",
+    "crates/clinical-safety",
+    "crates/medical-coding",
 ]
 
 [workspace.dependencies]

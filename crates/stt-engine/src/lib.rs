@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::io::{BufRead, BufReader, Write};
-use std::process::{ChildStdin, ChildStdout, Command, Stdio};
+use std::io::Write;
 use std::sync::Mutex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,10 +25,17 @@ pub trait SttEngine: Send + Sync {
 }
 
 // ── Windows SAPI engine (persistent faster-whisper daemon) ─────────────────────
+#[cfg(target_os = "windows")]
+use std::io::{BufRead, BufReader};
+#[cfg(target_os = "windows")]
+use std::process::{ChildStdin, ChildStdout, Command, Stdio};
+
+#[cfg(target_os = "windows")]
 pub struct WindowsSapiEngine {
     daemon: Mutex<Option<(ChildStdin, BufReader<ChildStdout>)>>,
 }
 
+#[cfg(target_os = "windows")]
 impl WindowsSapiEngine {
     pub fn new() -> Self {
         Self {
@@ -38,6 +44,7 @@ impl WindowsSapiEngine {
     }
 }
 
+#[cfg(target_os = "windows")]
 #[async_trait]
 impl SttEngine for WindowsSapiEngine {
     async fn load_model(&mut self, _model_path: &str) -> Result<(), String> {
@@ -63,7 +70,6 @@ impl SttEngine for WindowsSapiEngine {
         let stdout = child.stdout.take().ok_or("Failed to get daemon stdout")?;
         let mut reader = BufReader::new(stdout);
 
-        // Wait for the READY signal
         let mut line = String::new();
         reader.read_line(&mut line).map_err(|e| format!("Failed to read READY from daemon: {}", e))?;
         if line.trim() != "READY" {
@@ -93,22 +99,18 @@ impl SttEngine for WindowsSapiEngine {
             }
         }
 
-        // 1. Write PCM floats to a standard 16-bit mono WAV temp file
         let wav_path = std::env::temp_dir().join("scriberx_input.wav");
         write_wav(&wav_path, &normalized_pcm, sample_rate)
             .map_err(|e| format!("Failed to write WAV: {}", e))?;
 
         let wav_path_str = wav_path.to_string_lossy();
 
-        // 2. Communicate with the persistent daemon
         let mut guard = self.daemon.lock().unwrap();
         let (stdin, reader) = guard.as_mut().ok_or("Daemon not initialized")?;
 
-        // Write the path to stdin
         writeln!(stdin, "{}", wav_path_str).map_err(|e| format!("Failed to write to daemon: {}", e))?;
         stdin.flush().map_err(|e| format!("Failed to flush daemon: {}", e))?;
 
-        // Read the transcription line from stdout
         let mut raw_text = String::new();
         reader.read_line(&mut raw_text).map_err(|e| format!("Failed to read from daemon: {}", e))?;
         let raw_text = raw_text.trim().to_string();
@@ -119,6 +121,49 @@ impl SttEngine for WindowsSapiEngine {
             raw_text,
             tokens: vec![],
             processing_time_ms: elapsed_ms,
+        })
+    }
+}
+
+// ── Fallback SAPI engine for macOS/Linux ──────────────────────────────────────
+#[cfg(not(target_os = "windows"))]
+pub struct WindowsSapiEngine {
+    mock_transcription: Mutex<String>,
+}
+
+#[cfg(not(target_os = "windows"))]
+impl WindowsSapiEngine {
+    pub fn new() -> Self {
+        Self {
+            mock_transcription: Mutex::new("test dictation".to_string()),
+        }
+    }
+
+    pub fn set_mock_transcription(&self, text: &str) {
+        if let Ok(mut guard) = self.mock_transcription.lock() {
+            *guard = text.to_string();
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+#[async_trait]
+impl SttEngine for WindowsSapiEngine {
+    async fn load_model(&mut self, _model_path: &str) -> Result<(), String> {
+        println!("Mocking Whisper transcription daemon on macOS/Linux...");
+        Ok(())
+    }
+
+    async fn transcribe(&self, _audio_pcm: &[f32], _sample_rate: u32) -> Result<TranscriptionResult, String> {
+        let text = if let Ok(guard) = self.mock_transcription.lock() {
+            guard.clone()
+        } else {
+            "test dictation".to_string()
+        };
+        Ok(TranscriptionResult {
+            raw_text: text,
+            tokens: vec![],
+            processing_time_ms: 5,
         })
     }
 }

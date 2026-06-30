@@ -1,10 +1,44 @@
+#[cfg(target_os = "windows")]
 use std::mem::size_of;
+#[cfg(target_os = "windows")]
 use windows::Win32::UI::Input::KeyboardAndMouse::{SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_UNICODE, KEYEVENTF_KEYUP, VK_CONTROL, VIRTUAL_KEY, GetAsyncKeyState};
+#[cfg(target_os = "windows")]
 use windows::Win32::System::DataExchange::{OpenClipboard, CloseClipboard, GetClipboardData, SetClipboardData, EmptyClipboard};
+#[cfg(target_os = "windows")]
 use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GHND};
+#[cfg(target_os = "windows")]
 use windows::Win32::Foundation::HWND;
+#[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, GetGUIThreadInfo, GUITHREADINFO};
+#[cfg(target_os = "windows")]
 use windows::Win32::Foundation::POINT;
+
+use std::sync::{Mutex, OnceLock};
+
+static INJECTED_TEXTS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+
+fn store_injected_text(text: &str) {
+    let mutex = INJECTED_TEXTS.get_or_init(|| Mutex::new(Vec::new()));
+    if let Ok(mut guard) = mutex.lock() {
+        guard.push(text.to_string());
+    }
+}
+
+pub fn get_injected_texts() -> Vec<String> {
+    let mutex = INJECTED_TEXTS.get_or_init(|| Mutex::new(Vec::new()));
+    if let Ok(guard) = mutex.lock() {
+        guard.clone()
+    } else {
+        Vec::new()
+    }
+}
+
+pub fn clear_injected_texts() {
+    let mutex = INJECTED_TEXTS.get_or_init(|| Mutex::new(Vec::new()));
+    if let Ok(mut guard) = mutex.lock() {
+        guard.clear();
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InjectionStrategy {
@@ -23,6 +57,7 @@ pub struct DummyInjector;
 impl TextInjector for DummyInjector {
     fn inject(&self, text: &str, _strategy: InjectionStrategy) -> Result<(), String> {
         println!("[Mock Injection]: {}", text);
+        store_injected_text(text);
         Ok(())
     }
 
@@ -31,16 +66,20 @@ impl TextInjector for DummyInjector {
     }
 }
 
+#[cfg(target_os = "windows")]
 pub struct WindowsTextInjector;
 
+#[cfg(target_os = "windows")]
 impl WindowsTextInjector {
     pub fn new() -> Self {
         Self
     }
 }
 
+#[cfg(target_os = "windows")]
 impl TextInjector for WindowsTextInjector {
     fn inject(&self, text: &str, strategy: InjectionStrategy) -> Result<(), String> {
+        store_injected_text(text);
         match strategy {
             InjectionStrategy::SendInput => inject_str_via_send_input(text),
             InjectionStrategy::ClipboardPaste => {
@@ -63,6 +102,7 @@ impl TextInjector for WindowsTextInjector {
     }
 }
 
+#[cfg(target_os = "windows")]
 fn inject_str_via_send_input(text: &str) -> Result<(), String> {
     let mut inputs = Vec::new();
     for c in text.encode_utf16() {
@@ -100,6 +140,7 @@ fn inject_str_via_send_input(text: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
 fn set_clipboard_text(text: &str) -> Result<(), String> {
     unsafe {
         if !OpenClipboard(HWND(0)).is_ok() {
@@ -129,6 +170,7 @@ fn set_clipboard_text(text: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
 fn get_clipboard_text() -> Result<String, String> {
     unsafe {
         if !OpenClipboard(HWND(0)).is_ok() {
@@ -159,6 +201,7 @@ fn get_clipboard_text() -> Result<String, String> {
     }
 }
 
+#[cfg(target_os = "windows")]
 fn simulate_ctrl_v() {
     let vk_c = VK_CONTROL;
     let vk_v = VIRTUAL_KEY(0x56);
@@ -193,6 +236,7 @@ fn simulate_ctrl_v() {
     }
 }
 
+#[cfg(target_os = "windows")]
 fn get_caret_position() -> Option<(i32, i32)> {
     unsafe {
         let mut info = GUITHREADINFO {
@@ -221,27 +265,27 @@ fn get_caret_position() -> Option<(i32, i32)> {
     None
 }
 
-/// Key virtual codes
-/// VK_CONTROL = 0x11, VK_MENU (Alt) = 0x12, VK_F9 = 0x78
+#[cfg(target_os = "windows")]
 const VK_CTRL: i32 = 0x11;
+#[cfg(target_os = "windows")]
 const VK_ALT: i32 = 0x12;
+#[cfg(target_os = "windows")]
 const VK_F9: i32 = 0x78;
 
+#[cfg(target_os = "windows")]
 pub struct HotkeyListener;
 
+#[cfg(target_os = "windows")]
 impl HotkeyListener {
     pub fn new() -> Self {
         Self
     }
 
     pub fn register(&self) -> Result<(), String> {
-        // GetAsyncKeyState needs no registration — it polls hardware directly
         println!("[HotkeyListener] Using GetAsyncKeyState polling on Ctrl+Alt+F9");
         Ok(())
     }
 
-    /// Blocks until Ctrl+Alt+F9 is pressed (leading edge only).
-    /// Polls every 50ms — works from any thread, any window focus.
     pub fn wait_for_hotkey(&self) -> bool {
         let mut was_down = false;
         loop {
@@ -253,7 +297,6 @@ impl HotkeyListener {
                 ctrl && alt && f9
             };
             if triggered && !was_down {
-                // Wait until the hotkey is released to prevent instant double-triggering
                 while unsafe {
                     let ctrl = (GetAsyncKeyState(VK_CTRL) as u16) & 0x8000 != 0;
                     let alt  = (GetAsyncKeyState(VK_ALT)  as u16) & 0x8000 != 0;
@@ -271,3 +314,60 @@ impl HotkeyListener {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
+use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(not(target_os = "windows"))]
+pub static HOTKEY_TRIGGERED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(not(target_os = "windows"))]
+pub fn simulate_hotkey_press() {
+    HOTKEY_TRIGGERED.store(true, Ordering::SeqCst);
+}
+
+#[cfg(not(target_os = "windows"))]
+pub struct WindowsTextInjector;
+
+#[cfg(not(target_os = "windows"))]
+impl WindowsTextInjector {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+impl TextInjector for WindowsTextInjector {
+    fn inject(&self, text: &str, _strategy: InjectionStrategy) -> Result<(), String> {
+        println!("[Mock WindowsTextInjector injection]: {}", text);
+        store_injected_text(text);
+        Ok(())
+    }
+
+    fn capture_caret_position(&self) -> Option<(i32, i32)> {
+        Some((120, 120))
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub struct HotkeyListener;
+
+#[cfg(not(target_os = "windows"))]
+impl HotkeyListener {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn register(&self) -> Result<(), String> {
+        println!("[HotkeyListener] Using mock hotkey polling on macOS/Linux");
+        Ok(())
+    }
+
+    pub fn wait_for_hotkey(&self) -> bool {
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            if HOTKEY_TRIGGERED.compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+                return true;
+            }
+        }
+    }
+}

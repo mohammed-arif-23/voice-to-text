@@ -1,6 +1,5 @@
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU32, Ordering, AtomicBool};
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 pub trait AudioRecorder: Send + Sync {
     fn start_recording(&mut self) -> Result<(), String>;
@@ -34,10 +33,17 @@ impl AudioRecorder for DummyAudioRecorder {
     }
 }
 
+#[cfg(target_os = "windows")]
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+
+#[cfg(target_os = "windows")]
 pub struct StreamWrapper(cpal::Stream);
+#[cfg(target_os = "windows")]
 unsafe impl Send for StreamWrapper {}
+#[cfg(target_os = "windows")]
 unsafe impl Sync for StreamWrapper {}
 
+#[cfg(target_os = "windows")]
 pub struct CpalAudioRecorder {
     stream: Option<StreamWrapper>,
     buffer: Arc<Mutex<Vec<f32>>>,
@@ -47,6 +53,7 @@ pub struct CpalAudioRecorder {
     recording: Arc<AtomicBool>,
 }
 
+#[cfg(target_os = "windows")]
 impl CpalAudioRecorder {
     pub fn new() -> Self {
         Self {
@@ -90,18 +97,15 @@ impl CpalAudioRecorder {
     }
 }
 
+#[cfg(target_os = "windows")]
 impl AudioRecorder for CpalAudioRecorder {
     fn start_recording(&mut self) -> Result<(), String> {
-        // Clear old samples from buffer
         {
             let mut buf = self.buffer.lock().unwrap();
             buf.clear();
         }
-
-        // Enable recording flag
         self.recording.store(true, Ordering::SeqCst);
 
-        // Build and play the stream if it hasn't been initialized yet
         if self.stream.is_none() {
             let host = cpal::default_host();
             let device = host.default_input_device()
@@ -184,7 +188,6 @@ impl AudioRecorder for CpalAudioRecorder {
     }
 
     fn stop_recording(&mut self) -> Result<Vec<f32>, String> {
-        // Disable recording flag instantly
         self.recording.store(false, Ordering::SeqCst);
         self.rms_level.store(0f32.to_bits(), Ordering::SeqCst);
 
@@ -199,7 +202,6 @@ impl AudioRecorder for CpalAudioRecorder {
             return Ok(Vec::new());
         }
 
-        // 1. Channel conversion (convert multi-channel to mono)
         let mono_samples = if self.input_channels > 1 {
             let mut mono = Vec::with_capacity(raw_samples.len() / self.input_channels as usize);
             let chunk_size = self.input_channels as usize;
@@ -212,11 +214,63 @@ impl AudioRecorder for CpalAudioRecorder {
             raw_samples
         };
 
-        // 2. Resampling (resample to 16000 Hz)
         let target_sample_rate = 16000;
         let resampled = Self::resample(&mono_samples, self.input_sample_rate, target_sample_rate);
 
         Ok(resampled)
+    }
+
+    fn get_current_rms_level(&self) -> f32 {
+        f32::from_bits(self.rms_level.load(Ordering::SeqCst))
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub struct CpalAudioRecorder {
+    recording: Arc<AtomicBool>,
+    buffer: Arc<Mutex<Vec<f32>>>,
+    rms_level: Arc<AtomicU32>,
+}
+
+#[cfg(not(target_os = "windows"))]
+impl CpalAudioRecorder {
+    pub fn new() -> Self {
+        Self {
+            recording: Arc::new(AtomicBool::new(false)),
+            buffer: Arc::new(Mutex::new(Vec::new())),
+            rms_level: Arc::new(AtomicU32::new(0f32.to_bits())),
+        }
+    }
+
+    pub fn feed_mock_audio(&self, samples: &[f32]) {
+        if let Ok(mut buf) = self.buffer.lock() {
+            buf.extend_from_slice(samples);
+        }
+        let sum_sq: f32 = samples.iter().map(|&x| x * x).sum();
+        let rms = (sum_sq / samples.len().max(1) as f32).sqrt();
+        self.rms_level.store(rms.to_bits(), Ordering::SeqCst);
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+impl AudioRecorder for CpalAudioRecorder {
+    fn start_recording(&mut self) -> Result<(), String> {
+        self.recording.store(true, Ordering::SeqCst);
+        self.rms_level.store(0.15f32.to_bits(), Ordering::SeqCst);
+        let mut buf = self.buffer.lock().unwrap();
+        buf.clear();
+        Ok(())
+    }
+
+    fn stop_recording(&mut self) -> Result<Vec<f32>, String> {
+        self.recording.store(false, Ordering::SeqCst);
+        self.rms_level.store(0f32.to_bits(), Ordering::SeqCst);
+        let buf = self.buffer.lock().unwrap();
+        if buf.is_empty() {
+            Ok(vec![0.05; 16000]) // 1 sec of dummy speech samples
+        } else {
+            Ok(buf.clone())
+        }
     }
 
     fn get_current_rms_level(&self) -> f32 {

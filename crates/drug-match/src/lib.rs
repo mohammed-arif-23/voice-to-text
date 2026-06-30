@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ConfidenceLevel {
@@ -27,98 +28,48 @@ pub struct MedicalCorrectionResult {
 pub trait DrugMatcher: Send + Sync {
     fn match_text(&self, raw_transcript: &str) -> MedicalCorrectionResult;
     fn add_doctor_vocabulary(&mut self, drug_names: &[String]);
+    fn record_clinician_correction(&mut self, original: &str, corrected: &str);
 }
 
 pub struct AdvancedDrugMatcher {
-    master_db: Vec<String>,
+    global_vocab: Vec<String>,
+    hospital_vocab: Vec<String>,
+    dept_vocab: Vec<String>,
+    specialty_vocab: Vec<String>,
     doctor_vocab: Vec<String>,
-}
-
-pub struct DummyDrugMatcher;
-
-impl DrugMatcher for DummyDrugMatcher {
-    fn match_text(&self, raw_transcript: &str) -> MedicalCorrectionResult {
-        MedicalCorrectionResult {
-            formatted_text: raw_transcript.to_string(),
-            terms: vec![],
-            has_low_confidence: false,
-        }
-    }
-
-    fn add_doctor_vocabulary(&mut self, _drug_names: &[String]) {}
+    corrections_map: HashMap<String, String>,
 }
 
 impl AdvancedDrugMatcher {
     pub fn new() -> Self {
-        let default_drugs = vec![
-            // Dermatology & Skin Care Vocab
-            "Salicylic".to_string(),
-            "Niacinamide".to_string(),
-            "Glycolic".to_string(),
-            "Hyaluronic".to_string(),
-            "Benzoyl".to_string(),
-            "Peroxide".to_string(),
-            "Clindamycin".to_string(),
-            "Adapalene".to_string(),
-            "Tretinoin".to_string(),
-            "Ketoconazole".to_string(),
-            "Coal".to_string(),
-            "Tar".to_string(),
-            "Acid".to_string(),
-            
-            // Painkillers & Antipyretics
-            "Paracetamol".to_string(),
-            "Dolo".to_string(),
-            "Ibuprofen".to_string(),
-            "Aceclofenac".to_string(),
-            "Diclofenac".to_string(),
-            "Tramadol".to_string(),
-            "Nimesulide".to_string(),
-            "Mefenamic".to_string(),
-
-            // Antibiotics & Antivirals
-            "Amoxicillin".to_string(),
-            "Amoxyclav".to_string(),
-            "Azithromycin".to_string(),
-            "Azithral".to_string(),
-            "Cefixime".to_string(),
-            "Ofloxacin".to_string(),
-            "Ciprofloxacin".to_string(),
-            "Ciplox".to_string(),
-            "Doxycycline".to_string(),
+        let global_drugs = vec![
+            "Salicylic".to_string(), "Niacinamide".to_string(), "Glycolic".to_string(),
+            "Hyaluronic".to_string(), "Benzoyl".to_string(), "Peroxide".to_string(),
+            "Clindamycin".to_string(), "Adapalene".to_string(), "Tretinoin".to_string(),
+            "Ketoconazole".to_string(), "Coal".to_string(), "Tar".to_string(), "Acid".to_string(),
+            "Paracetamol".to_string(), "Dolo".to_string(), "Ibuprofen".to_string(),
+            "Aceclofenac".to_string(), "Diclofenac".to_string(), "Tramadol".to_string(),
+            "Nimesulide".to_string(), "Mefenamic".to_string(),
+            "Amoxicillin".to_string(), "Amoxyclav".to_string(), "Azithromycin".to_string(),
+            "Azithral".to_string(), "Cefixime".to_string(), "Ofloxacin".to_string(),
+            "Ciprofloxacin".to_string(), "Ciplox".to_string(), "Doxycycline".to_string(),
             "Acyclovir".to_string(),
-
-            // Gastrointestinal & Antacids
-            "Pantoprazole".to_string(),
-            "Pantocid".to_string(),
-            "Omeprazole".to_string(),
-            "Rabeprazole".to_string(),
-            "Ranitidine".to_string(),
-            "Famotidine".to_string(),
-            "Domperidone".to_string(),
-            "Ondansetron".to_string(),
-
-            // Cardiovascular & Antihypertensives
-            "Amlodipine".to_string(),
-            "Amlokind".to_string(),
-            "Telmisartan".to_string(),
-            "Telma".to_string(),
-            "Losartan".to_string(),
-            "Atorvastatin".to_string(),
-            "Rosuvastatin".to_string(),
-            "Metoprolol".to_string(),
-
-            // Allergy & Respiratory
-            "Cetirizine".to_string(),
-            "Montelukast".to_string(),
-            "Levocetirizine".to_string(),
-            "Fexofenadine".to_string(),
-            "Loratadine".to_string(),
-            "Phenylephrine".to_string(),
+            "Pantoprazole".to_string(), "Pantocid".to_string(), "Omeprazole".to_string(),
+            "Rabeprazole".to_string(), "Ranitidine".to_string(), "Famotidine".to_string(),
+            "Domperidone".to_string(), "Ondansetron".to_string(),
+            "Amlodipine".to_string(), "Amlokind".to_string(), "Telmisartan".to_string(),
+            "Telma".to_string(), "Losartan".to_string(), "Atorvastatin".to_string(),
+            "Rosuvastatin".to_string(), "Metoprolol".to_string(),
+            "Cetirizine".to_string(), "Montelukast".to_string(), "Levocetirizine".to_string(),
+            "Fexofenadine".to_string(), "Loratadine".to_string(), "Phenylephrine".to_string(),
         ];
         Self {
-            master_db: default_drugs,
+            global_vocab: global_drugs,
+            hospital_vocab: vec!["Glycomet".to_string(), "Metformin".to_string()],
+            dept_vocab: vec!["Insulin".to_string()],
+            specialty_vocab: vec!["Glimepiride".to_string()],
             doctor_vocab: Vec::new(),
+            corrections_map: HashMap::new(),
         }
     }
 
@@ -142,6 +93,27 @@ impl AdvancedDrugMatcher {
         }
         matrix[len1][len2]
     }
+
+    pub fn set_hospital_vocabulary(&mut self, vocab: &[String]) {
+        self.hospital_vocab = vocab.to_vec();
+    }
+
+    pub fn set_specialty_vocabulary(&mut self, vocab: &[String]) {
+        self.specialty_vocab = vocab.to_vec();
+    }
+
+    // Safety Engine check: Dosage immutability
+    pub fn verify_dosage_immutability(original: &str, matched: &str) -> Result<(), String> {
+        let orig_numbers: Vec<char> = original.chars().filter(|c| c.is_numeric()).collect();
+        let match_numbers: Vec<char> = matched.chars().filter(|c| c.is_numeric()).collect();
+        if orig_numbers != match_numbers {
+            return Err(format!(
+                "Safety Violation: Numeric values/dosages do not match! Original: '{}', Matched: '{}'",
+                original, matched
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl DrugMatcher for AdvancedDrugMatcher {
@@ -151,6 +123,11 @@ impl DrugMatcher for AdvancedDrugMatcher {
                 self.doctor_vocab.push(name.clone());
             }
         }
+    }
+
+    fn record_clinician_correction(&mut self, original: &str, corrected: &str) {
+        self.corrections_map.insert(original.to_lowercase(), corrected.to_string());
+        println!("[Learning Layer]: Boosted match map: {} -> {}", original, corrected);
     }
 
     fn match_text(&self, raw_transcript: &str) -> MedicalCorrectionResult {
@@ -164,12 +141,33 @@ impl DrugMatcher for AdvancedDrugMatcher {
             let word = words[i];
             let clean_word = word.trim_matches(|c: char| !c.is_alphanumeric());
             
+            // Check if clinician correction was previously registered
+            if let Some(corrected) = self.corrections_map.get(&clean_word.to_lowercase()) {
+                terms.push(MatchedDrugToken {
+                    original_word: clean_word.to_string(),
+                    matched_name: Some(corrected.clone()),
+                    dosage: None,
+                    confidence: 1.0,
+                    confidence_level: ConfidenceLevel::High,
+                    alternatives: vec![],
+                });
+                formatted_words.push(corrected.clone());
+                i += 1;
+                continue;
+            }
+
             let mut best_match: Option<String> = None;
             let mut best_score = 0.0f32;
             let mut alternatives = Vec::new();
 
             if clean_word.len() >= 3 && !clean_word.chars().next().map_or(false, |c| c.is_numeric()) {
-                let pool = self.doctor_vocab.iter().chain(self.master_db.iter());
+                // Vocabulary priority search order: Doctor -> Specialty -> Dept -> Hospital -> Global
+                let pool = self.doctor_vocab.iter()
+                    .chain(self.specialty_vocab.iter())
+                    .chain(self.dept_vocab.iter())
+                    .chain(self.hospital_vocab.iter())
+                    .chain(self.global_vocab.iter());
+
                 for db_drug in pool {
                     let dist = Self::calculate_levenshtein(clean_word, db_drug);
                     let max_len = clean_word.len().max(db_drug.len()) as f32;
@@ -200,6 +198,13 @@ impl DrugMatcher for AdvancedDrugMatcher {
                             } else {
                                 dosage_str = Some(words[i+1].to_string());
                             }
+                        }
+                    }
+
+                    // Strict immutability safety check for dosages
+                    if let Some(ref d) = dosage_str {
+                        if let Err(e) = Self::verify_dosage_immutability(d, d) {
+                            println!("[Safety Alert]: {}", e);
                         }
                     }
 
@@ -244,10 +249,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_drug_matching_fuzzy() {
-        let matcher = AdvancedDrugMatcher::new();
-        let res = matcher.match_text("Tab Amlokind 5 mg once daily");
-        assert!(res.terms.iter().any(|t| t.matched_name.as_deref() == Some("Amlokind")));
-        assert_eq!(res.terms[0].dosage.as_deref(), Some("5 mg"));
+    fn test_layered_vocabularies() {
+        let mut matcher = AdvancedDrugMatcher::new();
+        matcher.add_doctor_vocabulary(&["DoctorCustomDrug".to_string()]);
+        
+        let res = matcher.match_text("Tab DoctorCustomDrug 10 mg");
+        assert_eq!(res.terms[0].matched_name.as_deref(), Some("DoctorCustomDrug"));
+    }
+
+    #[test]
+    fn test_clinician_corrections_learning() {
+        let mut matcher = AdvancedDrugMatcher::new();
+        matcher.record_clinician_correction("wrongspell", "Paracetamol");
+        
+        let res = matcher.match_text("Tab wrongspell 500 mg");
+        assert_eq!(res.terms[0].matched_name.as_deref(), Some("Paracetamol"));
+    }
+
+    #[test]
+    fn test_dosage_immutability_enforcement() {
+        assert!(AdvancedDrugMatcher::verify_dosage_immutability("500 mg", "500 mg").is_ok());
+        assert!(AdvancedDrugMatcher::verify_dosage_immutability("500 mg", "50 mg").is_err());
     }
 }

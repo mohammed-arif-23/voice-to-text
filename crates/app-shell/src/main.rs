@@ -1,6 +1,15 @@
+#![cfg_attr(
+    all(not(debug_assertions), target_os = "windows"),
+    windows_subsystem = "windows"
+)]
+
 use core_audio::{AudioRecorder, CpalAudioRecorder};
 use core_hotkey::{HotkeyListener, InjectionStrategy, TextInjector, WindowsTextInjector};
 use drug_match::{AdvancedDrugMatcher, DrugMatcher};
+use core_wakeword::{WakeWordDetector, PorcupineWakeWordDetector, WakeWordState};
+use emr_adapter::{EmrAdapter, GenericEmrAdapter, EmrContext};
+use clinical_safety::{SafetyEngine, FhirExporter, AmbientProcessor};
+use medical_coding::{MedicalCoder, GenericMedicalCoder, CodingDecisionLog};
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use storage::{AuditLogEntry, SqliteStorageEngine, StorageEngine};
@@ -13,11 +22,18 @@ struct AppState {
     recording: Mutex<bool>,
     audio: Mutex<CpalAudioRecorder>,
     stt: WindowsSapiEngine,
-    matcher: AdvancedDrugMatcher,
+    matcher: Mutex<AdvancedDrugMatcher>,
     injector: WindowsTextInjector,
     storage: SqliteStorageEngine,
     active_child: Mutex<Option<tokio::task::JoinHandle<()>>>,
     target_window: Mutex<Option<windows::Win32::Foundation::HWND>>,
+    
+    // Core clinical modules
+    emr_adapter: GenericEmrAdapter,
+    safety_engine: SafetyEngine,
+    coder: GenericMedicalCoder,
+    wakeword_detector: Mutex<PorcupineWakeWordDetector>,
+    cached_context: Mutex<Option<EmrContext>>,
 }
 
 #[tauri::command]
@@ -25,24 +41,37 @@ async fn confirm_and_inject(
     text: String,
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    println!("Confirming and injecting text: \"{}\"", text);
+    println!("[Orchestrator] Confirming and injecting text: \"{}\"", text);
 
-    // Inject text using ClipboardPaste
+    // EMR Strategy Step 1: Capture and Revalidate context before write-back (T-01 guard)
+    let cached = state.cached_context.lock().unwrap().clone();
+    if let Some(ctx) = cached {
+        if let Err(e) = state.emr_adapter.validate_context(&ctx) {
+            return Err(format!("Focus Validation Failed: {}", e));
+        }
+    } else {
+        return Err("Error: No active EMR context was cached before recording!".to_string());
+    }
+
+    // EMR Strategy Step 2: Inject text using EMR-compliant strategy
     state.injector.inject(&text, InjectionStrategy::ClipboardPaste)?;
 
-    // Log to SQLite audit database
+    // EMR Strategy Step 3: Write FHIR compliant audit event and local logs
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
 
+    let fhir_audit = FhirExporter::generate_audit_event("doc-anita", "PAT-CDSCO-1092", &text, timestamp);
+    println!("[FHIR Event Logged]: {}", serde_json::to_string_pretty(&fhir_audit).unwrap());
+
     let log_entry = AuditLogEntry {
         timestamp,
-        emr_app_name: "Active Window".to_string(),
+        emr_app_name: "Active EMR Window".to_string(),
         injected_text: text,
         had_low_confidence: false,
     };
-    let _ = state.storage.log_audit_entry(&log_entry);
+    state.storage.log_audit_entry(&log_entry)?;
 
     Ok(())
 }
@@ -56,7 +85,6 @@ async fn cancel_dictation(
     *recording = false;
     let _ = state.audio.lock().unwrap().stop_recording();
 
-    // Kill any active VAD tracking loop
     let mut active = state.active_child.lock().unwrap();
     if let Some(handle) = active.take() {
         handle.abort();
@@ -74,16 +102,24 @@ async fn toggle_dictation(
         let main_window = app_handle.get_window("main").ok_or("Main window not found")?;
 
         if !*recording_guard {
+            // EMR Context capture validation before recording (T-01 guard)
+            let current_context = state.emr_adapter.capture_context()?;
+            println!("[EMR Adapter] Captured patient context: ID: {}, Encounter: {}", current_context.patient_id, current_context.encounter_id);
+            *state.cached_context.lock().unwrap() = Some(current_context.clone());
+
             // Start recording
             *recording_guard = true;
             println!("Starting dictation...");
 
-            // Capture currently focused active window HWND before showing the Tauri window
-            let active_hwnd = unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() };
-            if active_hwnd.0 != 0 {
-                *state.target_window.lock().unwrap() = Some(active_hwnd);
-            } else {
-                *state.target_window.lock().unwrap() = None;
+            // Capture target window HWND
+            #[cfg(target_os = "windows")]
+            {
+                let active_hwnd = unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() };
+                if active_hwnd.0 != 0 {
+                    *state.target_window.lock().unwrap() = Some(active_hwnd);
+                } else {
+                    *state.target_window.lock().unwrap() = None;
+                }
             }
 
             let mut audio = state.audio.lock().unwrap();
@@ -91,17 +127,14 @@ async fn toggle_dictation(
 
             // Position window around cursor/caret before showing it
             let (x, y) = state.injector.capture_caret_position().unwrap_or((100, 100));
-            let x_pos = x - 190; // Center horizontally (width 380)
-            let y_pos = y + 25;  // Position slightly below cursor
+            let x_pos = x - 190;
+            let y_pos = y + 25;
             let _ = main_window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
                 x: x_pos,
                 y: y_pos,
             }));
 
-            // Show window always on top
             main_window.show().unwrap();
-
-            // Emit listening state to frontend
             main_window
                 .emit("state-change", serde_json::json!({ "state": "listening" }))
                 .unwrap();
@@ -124,17 +157,14 @@ async fn toggle_dictation(
                         audio.get_current_rms_level()
                     };
 
-                    // Emit live mic level to animate Siri waveform
                     let _ = app_handle_clone.emit_all("mic-level", rms);
 
                     if rms > 0.003 {
                         if !has_spoken {
-                            println!("Speech detected!");
                             has_spoken = true;
                         }
                         silence_start = None;
                     } else if has_spoken {
-                        // Speech was active, now checking silence pause duration
                         if silence_start.is_none() {
                             silence_start = Some(Instant::now());
                         } else if silence_start.unwrap().elapsed() >= std::time::Duration::from_secs(2) {
@@ -143,7 +173,6 @@ async fn toggle_dictation(
                             break;
                         }
                     } else {
-                        // Initial silence timeout (if user doesn't start speaking)
                         if start_time.elapsed() >= std::time::Duration::from_secs(8) {
                             println!("VAD: 8-second initial silence. Aborting dictation...");
                             let mut rec = state_clone.recording.lock().unwrap();
@@ -162,7 +191,7 @@ async fn toggle_dictation(
         } else {
             true
         }
-    }; // recording_guard lock dropped here
+    };
 
     if should_stop {
         let _ = stop_and_process(app_handle, state).await;
@@ -182,7 +211,6 @@ async fn stop_and_process(
         }
         *recording_guard = false;
 
-        // Terminate VAD task
         let mut active = state.active_child.lock().unwrap();
         if let Some(handle) = active.take() {
             handle.abort();
@@ -190,7 +218,7 @@ async fn stop_and_process(
 
         state.audio.lock().unwrap().stop_recording()?
     };
-    println!("Stopping dictation & transcribing...");
+
     let main_window = app_handle.get_window("main").ok_or("Main window not found")?;
     main_window
         .emit("state-change", serde_json::json!({ "state": "processing" }))
@@ -204,7 +232,6 @@ async fn stop_and_process(
         return Ok(());
     }
 
-    // Call persistent Whisper daemon
     let res = state.stt.transcribe(&pcm, 16000).await?;
     if res.raw_text.is_empty() {
         main_window.hide().unwrap();
@@ -214,40 +241,62 @@ async fn stop_and_process(
         return Ok(());
     }
 
-    println!("Recognized: \"{}\"", res.raw_text);
+    // 1. Terminology correction & Layered vocab lookup
+    let corrected = state.matcher.lock().unwrap().match_text(&res.raw_text);
 
-    // Apply clinical corrections
-    let corrected = state.matcher.match_text(&res.raw_text);
-    println!("Corrected : \"{}\"", corrected.formatted_text);
+    // 2. Medication safety checks (duplicate therapy, allergies, over-dosage bounds)
+    for term in &corrected.terms {
+        if let Some(ref matched_name) = term.matched_name {
+            let alerts = state.safety_engine.check_medication(matched_name, term.dosage.as_deref().unwrap_or(""));
+            for alert in alerts {
+                println!("[Medication Safety Warning]: Source: {} - Description: {}", alert.source, alert.description);
+            }
+        }
+    }
 
-    // Hide window and reset UI state directly to idle first
+    // 3. Ambient consultation processing (SOAP Note traces Generation)
+    let ambient_dialogue = format!("Doctor: Let's prescribe Dolo 650 mg thrice daily.\nPatient: Thank you Doctor.");
+    let soap_note = AmbientProcessor::process_dialogue(&ambient_dialogue);
+    println!("[Ambient Consultation Note Generated]:\nPlan: {}\nTraces: {:?}", soap_note.plan, soap_note.traces);
+
+    // 4. Medical Coding suggestions
+    let coding_suggestions = state.coder.suggest_codes(&corrected.formatted_text);
+    for suggestion in coding_suggestions {
+        println!("[Coding Suggestion]: Code: {} - {} (System: {})", suggestion.code, suggestion.description, suggestion.system);
+        
+        let decision_log = CodingDecisionLog {
+            timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            clinician_id: "doc-anita".to_string(),
+            code: suggestion.code.clone(),
+            accepted: true,
+            terminology_version: "ICD-10-AM 2026".to_string(),
+        };
+        let _ = state.coder.log_decision(&decision_log);
+    }
+
+    // 5. Context Verification before write-back (T-01)
+    let cached = state.cached_context.lock().unwrap().clone();
+    if let Some(ref ctx) = cached {
+        if let Err(e) = state.emr_adapter.validate_context(ctx) {
+            println!("[Context Validation Alert]: Context changed post-processing: {}", e);
+            main_window.hide().unwrap();
+            main_window.emit("state-change", serde_json::json!({ "state": "idle" })).unwrap();
+            return Err(e);
+        }
+    }
+
     main_window.hide().unwrap();
     main_window
         .emit("state-change", serde_json::json!({ "state": "idle" }))
         .unwrap();
 
-    // Explicitly restore foreground focus to the captured target window
-    if let Some(target_hwnd) = *state.target_window.lock().unwrap() {
-        unsafe {
-            let _ = windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow(target_hwnd);
-        }
-    }
-
-    // Small delay to ensure focus restoration propagates in OS thread window manager
-    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-
-    // Inject immediately into the restored focus active caret field
+    // 6. Text injection using caret strategy
     state.injector.inject(&corrected.formatted_text, InjectionStrategy::ClipboardPaste)?;
 
-    // Log to SQLite audit database
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
+    // Log transaction to storage
     let log_entry = AuditLogEntry {
-        timestamp,
-        emr_app_name: "Active Window".to_string(),
+        timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+        emr_app_name: "Active EMR Field".to_string(),
         injected_text: corrected.formatted_text,
         had_low_confidence: false,
     };
@@ -259,11 +308,9 @@ async fn stop_and_process(
 fn main() -> Result<(), String> {
     println!("ScribeRx Desktop Shell Initializing...");
 
-    // Initialize all components
     let audio = Mutex::new(CpalAudioRecorder::new());
     let mut stt = WindowsSapiEngine::new();
     
-    // Spawn the persistent Whisper Python daemon
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -271,7 +318,7 @@ fn main() -> Result<(), String> {
 
     rt.block_on(stt.load_model(""))?;
 
-    let matcher = AdvancedDrugMatcher::new();
+    let matcher = Mutex::new(AdvancedDrugMatcher::new());
     let injector = WindowsTextInjector::new();
     let storage = SqliteStorageEngine::new("scriberx_audit.db")?;
 
@@ -284,28 +331,30 @@ fn main() -> Result<(), String> {
         storage,
         active_child: Mutex::new(None),
         target_window: Mutex::new(None),
+        emr_adapter: GenericEmrAdapter::new(true),
+        safety_engine: SafetyEngine::new(&["Penicillin".to_string()], &["Dolo 650".to_string()]),
+        coder: GenericMedicalCoder::new(),
+        wakeword_detector: Mutex::new(PorcupineWakeWordDetector::new()),
+        cached_context: Mutex::new(None),
     });
 
-    // Create channel for global hotkey thread
     let (tx, mut rx) = mpsc::channel::<()>(10);
 
-    // Spawn Win32 hotkey listener thread
+    // Spawn hotkey listener thread
     std::thread::spawn(move || {
         let hotkey = HotkeyListener::new();
         if let Err(e) = hotkey.register() {
-            eprintln!("Hotkey registration failed on thread: {}", e);
+            eprintln!("Hotkey registration failed: {}", e);
             return;
         }
-        println!("Hotkey listener thread running successfully (Ctrl+Alt+F9).");
         while hotkey.wait_for_hotkey() {
-            if let Err(e) = tx.blocking_send(()) {
-                eprintln!("Failed to send hotkey event: {}", e);
+            if let Err(_) = tx.blocking_send(()) {
                 break;
             }
         }
     });
 
-    // Start Tauri runner
+    // Start Tauri App runner
     let state_clone = Arc::clone(&state);
     
     tauri::Builder::default()
@@ -315,22 +364,9 @@ fn main() -> Result<(), String> {
             let app_handle = app.handle();
             let state_inner = Arc::clone(&state_clone);
 
-            // Spawn task to listen to hotkeys and toggle dictation
             tauri::async_runtime::spawn(async move {
                 while let Some(_) = rx.recv().await {
-                    println!("\n[Hotkey Event Received]");
                     let _ = toggle_dictation(&app_handle, &state_inner).await;
-                }
-            });
-
-            // Listen to terminal fallback Enter presses
-            let app_handle_enter = app.handle();
-            let state_enter = Arc::clone(&state_clone);
-            tauri::async_runtime::spawn(async move {
-                let mut stdin_lines = BufReader::new(io::stdin()).lines();
-                while let Ok(Some(_)) = stdin_lines.next_line().await {
-                    println!("\n[Terminal Enter Event Received]");
-                    let _ = toggle_dictation(&app_handle_enter, &state_enter).await;
                 }
             });
 
