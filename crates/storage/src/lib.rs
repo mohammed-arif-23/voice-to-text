@@ -108,10 +108,10 @@ impl StorageEngine for SqliteStorageEngine {
 
 #[cfg(target_os = "windows")]
 fn get_or_create_db_key(parent_dir: Option<&Path>) -> Result<String, String> {
-    use windows::Win32::Security::Cryptography::{CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN};
-    use windows::Win32::Security::Cryptography::CRYPTOAPI_BLOB;
+    use windows::Win32::Security::Cryptography::{CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB};
+    use windows::Win32::Foundation::{LocalFree, HLOCAL};
     use std::fs::{self, File};
-    use std::io::{Read, Write};
+    use std::io::Read;
 
     let key_path = parent_dir.unwrap_or_else(|| Path::new(".")).join("scriberx.key");
 
@@ -122,11 +122,11 @@ fn get_or_create_db_key(parent_dir: Option<&Path>) -> Result<String, String> {
             .and_then(|mut f| f.read_to_end(&mut encrypted_bytes))
             .map_err(|e| format!("Failed to read key file: {}", e))?;
 
-        let mut input_blob = CRYPTOAPI_BLOB {
+        let mut input_blob = CRYPT_INTEGER_BLOB {
             cbData: encrypted_bytes.len() as u32,
             pbData: encrypted_bytes.as_mut_ptr(),
         };
-        let mut output_blob = CRYPTOAPI_BLOB::default();
+        let mut output_blob = CRYPT_INTEGER_BLOB::default();
 
         unsafe {
             let success = CryptUnprotectData(
@@ -135,15 +135,15 @@ fn get_or_create_db_key(parent_dir: Option<&Path>) -> Result<String, String> {
                 None,
                 None,
                 None,
-                CRYPTPROTECT_UI_FORBIDDEN.0,
+                CRYPTPROTECT_UI_FORBIDDEN,
                 &mut output_blob,
             );
-            if success.as_bool() {
+            if success.is_ok() {
                 let decrypted_slice = std::slice::from_raw_parts(output_blob.pbData, output_blob.cbData as usize);
                 let decrypted_key = String::from_utf8(decrypted_slice.to_vec())
                     .map_err(|e| format!("Key not valid UTF-8: {}", e))?;
                 // Free memory allocated by CryptUnprotectData
-                windows::Win32::System::Memory::LocalFree(windows::Win32::System::Memory::HLOCAL(output_blob.pbData as _));
+                let _ = LocalFree(HLOCAL(output_blob.pbData as _));
                 return Ok(decrypted_key);
             } else {
                 return Err("Failed to decrypt database key via Windows DPAPI".to_string());
@@ -154,11 +154,11 @@ fn get_or_create_db_key(parent_dir: Option<&Path>) -> Result<String, String> {
         let raw_key = uuid::Uuid::new_v4().to_string();
         let mut raw_bytes = raw_key.as_bytes().to_vec();
 
-        let mut input_blob = CRYPTOAPI_BLOB {
+        let mut input_blob = CRYPT_INTEGER_BLOB {
             cbData: raw_bytes.len() as u32,
             pbData: raw_bytes.as_mut_ptr(),
         };
-        let mut output_blob = CRYPTOAPI_BLOB::default();
+        let mut output_blob = CRYPT_INTEGER_BLOB::default();
 
         unsafe {
             let success = CryptProtectData(
@@ -167,14 +167,14 @@ fn get_or_create_db_key(parent_dir: Option<&Path>) -> Result<String, String> {
                 None,
                 None,
                 None,
-                CRYPTPROTECT_UI_FORBIDDEN.0,
+                CRYPTPROTECT_UI_FORBIDDEN,
                 &mut output_blob,
             );
-            if success.as_bool() {
+            if success.is_ok() {
                 let encrypted_slice = std::slice::from_raw_parts(output_blob.pbData, output_blob.cbData as usize);
                 fs::write(&key_path, encrypted_slice)
                     .map_err(|e| format!("Failed to write encrypted key file: {}", e))?;
-                windows::Win32::System::Memory::LocalFree(windows::Win32::System::Memory::HLOCAL(output_blob.pbData as _));
+                let _ = LocalFree(HLOCAL(output_blob.pbData as _));
                 return Ok(raw_key);
             } else {
                 return Err("Failed to encrypt database key via Windows DPAPI".to_string());

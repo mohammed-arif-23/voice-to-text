@@ -15,7 +15,7 @@ echo  ===================================================
 echo    UI      : Translucent Floating Glassmorphic GUI
 echo    VISUALS : Live Pulsing Siri Waveform Visualizer
 echo    ENGINE  : Fast Offline Whisper (base.en)
-echo    VAD     : Real-time 2s Auto-Stop & Direct Type
+echo    VAD     : Real-time 2s Auto-Stop and Direct Type
 echo.
 echo    HOTKEY  : Ctrl + Alt + F9  (global toggle)
 echo    FALLBACK: Press [Enter] here to toggle

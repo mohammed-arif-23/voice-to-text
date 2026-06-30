@@ -39,6 +39,7 @@ struct AppState {
 #[tauri::command]
 async fn confirm_and_inject(
     text: String,
+    window: tauri::Window,
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
     println!("[Orchestrator] Confirming and injecting text: \"{}\"", text);
@@ -53,7 +54,22 @@ async fn confirm_and_inject(
         return Err("Error: No active EMR context was cached before recording!".to_string());
     }
 
-    // EMR Strategy Step 2: Inject text using EMR-compliant strategy
+    // Hide the window to return focus
+    window.hide().unwrap();
+    window.emit("state-change", serde_json::json!({ "state": "idle" })).unwrap();
+
+    // Explicitly restore foreground focus to the captured target window
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(target_hwnd) = *state.target_window.lock().unwrap() {
+            restore_focus(target_hwnd);
+        }
+    }
+
+    // Small delay to ensure focus propagation
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+
+    // EMR Strategy Step 2: Inject text using EMR-compliant strategy (ClipboardPaste)
     state.injector.inject(&text, InjectionStrategy::ClipboardPaste)?;
 
     // EMR Strategy Step 3: Write FHIR compliant audit event and local logs
@@ -243,6 +259,8 @@ async fn stop_and_process(
 
     // 1. Terminology correction & Layered vocab lookup
     let corrected = state.matcher.lock().unwrap().match_text(&res.raw_text);
+    println!("Recognized: \"{}\"", res.raw_text);
+    println!("Corrected : \"{}\"", corrected.formatted_text);
 
     // 2. Medication safety checks (duplicate therapy, allergies, over-dosage bounds)
     for term in &corrected.terms {
@@ -256,8 +274,7 @@ async fn stop_and_process(
 
     // 3. Ambient consultation processing (SOAP Note traces Generation)
     let ambient_dialogue = format!("Doctor: Let's prescribe Dolo 650 mg thrice daily.\nPatient: Thank you Doctor.");
-    let soap_note = AmbientProcessor::process_dialogue(&ambient_dialogue);
-    println!("[Ambient Consultation Note Generated]:\nPlan: {}\nTraces: {:?}", soap_note.plan, soap_note.traces);
+    let _soap_note = AmbientProcessor::process_dialogue(&ambient_dialogue);
 
     // 4. Medical Coding suggestions
     let coding_suggestions = state.coder.suggest_codes(&corrected.formatted_text);
@@ -290,7 +307,18 @@ async fn stop_and_process(
         .emit("state-change", serde_json::json!({ "state": "idle" }))
         .unwrap();
 
-    // 6. Text injection using caret strategy
+    // Explicitly restore foreground focus to the captured target window
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(target_hwnd) = *state.target_window.lock().unwrap() {
+            restore_focus(target_hwnd);
+        }
+    }
+
+    // Small delay to ensure focus restoration propagates in OS thread window manager
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+
+    // 6. Text injection using caret strategy (ClipboardPaste)
     state.injector.inject(&corrected.formatted_text, InjectionStrategy::ClipboardPaste)?;
 
     // Log transaction to storage
@@ -376,4 +404,21 @@ fn main() -> Result<(), String> {
         .expect("error while running ScribeRx tauri application");
 
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn restore_focus(target_hwnd: windows::Win32::Foundation::HWND) {
+    unsafe {
+        let current_thread_id = windows::Win32::System::Threading::GetCurrentThreadId();
+        let target_thread_id = windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(target_hwnd, None);
+        if current_thread_id != target_thread_id {
+            let _ = windows::Win32::System::Threading::AttachThreadInput(current_thread_id, target_thread_id, true);
+            let _ = windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow(target_hwnd);
+            let _ = windows::Win32::UI::Input::KeyboardAndMouse::SetFocus(target_hwnd);
+            let _ = windows::Win32::System::Threading::AttachThreadInput(current_thread_id, target_thread_id, false);
+        } else {
+            let _ = windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow(target_hwnd);
+            let _ = windows::Win32::UI::Input::KeyboardAndMouse::SetFocus(target_hwnd);
+        }
+    }
 }

@@ -86,7 +86,7 @@ impl TextInjector for WindowsTextInjector {
                 let saved = get_clipboard_text().unwrap_or_default();
                 set_clipboard_text(text)?;
                 simulate_ctrl_v();
-                std::thread::sleep(std::time::Duration::from_millis(100));
+                std::thread::sleep(std::time::Duration::from_millis(350));
                 let _ = set_clipboard_text(&saved);
                 Ok(())
             }
