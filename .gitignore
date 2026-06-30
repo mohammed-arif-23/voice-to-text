@@ -1,7 +1,0 @@
-/target
-**/*.rs.bk
-*.user
-*.suo
-.DS_Store
-node_modules/
-dist/
