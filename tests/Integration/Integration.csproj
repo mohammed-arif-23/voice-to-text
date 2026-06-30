@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Desktop.Core\Desktop.Core.csproj" />
+    <ProjectReference Include="..\..\src\Desktop.Audio\Desktop.Audio.csproj" />
+    <ProjectReference Include="..\..\src\Desktop.Transcription\Desktop.Transcription.csproj" />
+    <ProjectReference Include="..\..\src\Desktop.Targeting\Desktop.Targeting.csproj" />
+    <ProjectReference Include="..\..\src\Desktop.Insertion\Desktop.Insertion.csproj" />
+    <ProjectReference Include="..\..\src\Desktop.NativeInterop\Desktop.NativeInterop.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Moq" />
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="coverlet.collector" />
+  </ItemGroup>
+</Project>

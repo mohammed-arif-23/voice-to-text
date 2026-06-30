@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>graphify - graphify-out/graph.html</title>
+<script src="https://unpkg.com/vis-network@9.1.6/standalone/umd/vis-network.min.js"
+        integrity="sha384-Ux6phic9PEHJ38YtrijhkzyJ8yQlH8i/+buBR8s3mAZOJrP1gwyvAcIYl3GWtpX1"
+        crossorigin="anonymous"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f0f1a; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: flex; height: 100vh; overflow: hidden; }
+  #graph { flex: 1; }
+  #sidebar { width: 280px; background: #1a1a2e; border-left: 1px solid #2a2a4e; display: flex; flex-direction: column; overflow: hidden; }
+  #search-wrap { padding: 12px; border-bottom: 1px solid #2a2a4e; }
+  #search { width: 100%; background: #0f0f1a; border: 1px solid #3a3a5e; color: #e0e0e0; padding: 7px 10px; border-radius: 6px; font-size: 13px; outline: none; }
+  #search:focus { border-color: #4E79A7; }
+  #search-results { max-height: 140px; overflow-y: auto; padding: 4px 12px; border-bottom: 1px solid #2a2a4e; display: none; }
+  .search-item { padding: 4px 6px; cursor: pointer; border-radius: 4px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .search-item:hover { background: #2a2a4e; }
+  #info-panel { padding: 14px; border-bottom: 1px solid #2a2a4e; min-height: 140px; }
+  #info-panel h3 { font-size: 13px; color: #aaa; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+  #info-content { font-size: 13px; color: #ccc; line-height: 1.6; }
+  #info-content .field { margin-bottom: 5px; }
+  #info-content .field b { color: #e0e0e0; }
+  #info-content .empty { color: #555; font-style: italic; }
+  .neighbor-link { display: block; padding: 2px 6px; margin: 2px 0; border-radius: 3px; cursor: pointer; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 3px solid #333; }
+  .neighbor-link:hover { background: #2a2a4e; }
+  #neighbors-list { max-height: 160px; overflow-y: auto; margin-top: 4px; }
+  #legend-wrap { flex: 1; overflow-y: auto; padding: 12px; }
+  #legend-wrap h3 { font-size: 13px; color: #aaa; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .legend-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; border-radius: 4px; font-size: 12px; }
+  .legend-item:hover { background: #2a2a4e; padding-left: 4px; }
+  .legend-item.dimmed { opacity: 0.35; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .legend-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .legend-count { color: #666; font-size: 11px; }
+  #stats { padding: 10px 14px; border-top: 1px solid #2a2a4e; font-size: 11px; color: #555; }
+  #legend-controls { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 4px 0; }
+  #legend-controls label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: #aaa; user-select: none; }
+  #legend-controls label:hover { color: #e0e0e0; }
+  .legend-cb, #select-all-cb { appearance: none; -webkit-appearance: none; width: 14px; height: 14px; border: 1.5px solid #3a3a5e; border-radius: 3px; background: #0f0f1a; cursor: pointer; position: relative; flex-shrink: 0; }
+  .legend-cb:checked, #select-all-cb:checked { background: #4E79A7; border-color: #4E79A7; }
+  .legend-cb:checked::after, #select-all-cb:checked::after { content: ''; position: absolute; left: 3.5px; top: 1px; width: 4px; height: 7px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  #select-all-cb:indeterminate { background: #4E79A7; border-color: #4E79A7; }
+  #select-all-cb:indeterminate::after { content: ''; position: absolute; left: 2px; top: 5px; width: 8px; height: 2px; background: #fff; border: none; transform: none; }
+</style>
+</head>
+<body>
+<div id="graph"></div>
+<div id="sidebar">
+  <div id="search-wrap">
+    <input id="search" type="text" placeholder="Search nodes..." autocomplete="off">
+    <div id="search-results"></div>
+  </div>
+  <div id="info-panel">
+    <h3>Node Info</h3>
+    <div id="info-content"><span class="empty">Click a node to inspect it</span></div>
+  </div>
+  <div id="legend-wrap">
+    <h3>Communities</h3>
+    <div id="legend-controls">
+      <label><input type="checkbox" id="select-all-cb" checked onchange="toggleAllCommunities(!this.checked)">Select All</label>
+    </div>
+    <div id="legend"></div>
+  </div>
+  <div id="stats">59 nodes &middot; 83 edges &middot; 16 communities</div>
+</div>
+<script>
+const RAW_NODES = [{"id": "agents_briefing", "label": "Sentinel Agent Briefing", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 11.8, "font": {"size": 0, "color": "#ffffff"}, "title": "Sentinel Agent Briefing", "community": 0, "community_name": "Core App Architecture", "source_file": ".agents/BRIEFING.md", "file_type": "document", "degree": 1}, {"id": "agents_original_request", "label": "Universal Dictation Original User Request", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 40.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Universal Dictation Original User Request", "community": 0, "community_name": "Core App Architecture", "source_file": ".agents/ORIGINAL_REQUEST.md", "file_type": "document", "degree": 17}, {"id": "agents_handoff", "label": "Sentinel Liveness Check Handoff Report", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 11.8, "font": {"size": 0, "color": "#ffffff"}, "title": "Sentinel Liveness Check Handoff Report", "community": 4, "community_name": "Agent Orchestration", "source_file": ".agents/handoff.md", "file_type": "document", "degree": 1}, {"id": "sentinel_agent", "label": "Sentinel Agent", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 13.5, "font": {"size": 0, "color": "#ffffff"}, "title": "Sentinel Agent", "community": 4, "community_name": "Agent Orchestration", "source_file": ".agents/BRIEFING.md", "file_type": "concept", "degree": 2}, {"id": "universal_dictation_app", "label": "Universal Voice-to-Text Desktop Application", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 15.3, "font": {"size": 12, "color": "#ffffff"}, "title": "Universal Voice-to-Text Desktop Application", "community": 4, "community_name": "Agent Orchestration", "source_file": ".agents/ORIGINAL_REQUEST.md", "file_type": "concept", "degree": 3}, {"id": "dotnet_solution_structure", "label": ".NET Solution Structure (UniversalDictation.sln)", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 15.3, "font": {"size": 12, "color": "#ffffff"}, "title": ".NET Solution Structure (UniversalDictation.sln)", "community": 2, "community_name": "Build System and Interfaces", "source_file": ".agents/ORIGINAL_REQUEST.md", "file_type": "concept", "degree": 3}, {"id": "dictation_session_state_machine", "label": "Dictation Session State Machine", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 13.5, "font": {"size": 0, "color": "#ffffff"}, "title": "Dictation Session State Machine", "community": 0, "community_name": "Core App Architecture", "source_file": ".agents/ORIGINAL_REQUEST.md", "file_type": "concept", "degree": 2}, {"id": "core_port_interfaces", "label": "Core Port Interfaces (Desktop.Core)", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 15.3, "font": {"size": 12, "color": "#ffffff"}, "title": "Core Port Interfaces (Desktop.Core)", "community": 2, "community_name": "Build System and Interfaces", "source_file": ".agents/ORIGINAL_REQUEST.md", "file_type": "concept", "degree": 3}, {"id": "logging_redaction_pipeline", "label": "Serilog Logging Redaction Pipeline", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 13.5, "font": {"size": 0, "color": "#ffffff"}, "title": "Serilog Logging Redaction Pipeline", "community": 0, "community_name": "Core App Architecture", "source_file": ".agents/ORIGINAL_REQUEST.md", "file_type": "concept", "degree": 2}, {"id": "wasapi_audio_capture", "label": "WASAPI Audio Capture Service", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 18.8, "font": {"size": 12, "color": "#ffffff"}, "title": "WASAPI Audio Capture Service", "community": 0, "community_name": "Core App Architecture", "source_file": ".agents/ORIGINAL_REQUEST.md", "file_type": "concept", "degree": 5}, {"id": "deepgram_nova3_adapter", "label": "Deepgram Nova-3 Streaming Adapter", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 18.8, "font": {"size": 12, "color": "#ffffff"}, "title": "Deepgram Nova-3 Streaming Adapter", "community": 0, "community_name": "Core App Architecture", "source_file": ".agents/ORIGINAL_REQUEST.md", "file_type": "concept", "degree": 5}, {"id": "azure_speech_adapter", "label": "Azure Cognitive Services Speech Adapter", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 18.8, "font": {"size": 12, "color": "#ffffff"}, "title": "Azure Cognitive Services Speech Adapter", "community": 0, "community_name": "Core App Architecture", "source_file": ".agents/ORIGINAL_REQUEST.md", "file_type": "concept", "degree": 5}, {"id": "whisper_offline_adapter", "label": "Whisper.net Offline Transcription Adapter", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 15.3, "font": {"size": 12, "color": "#ffffff"}, "title": "Whisper.net Offline Transcription Adapter", "community": 0, "community_name": "Core App Architecture", "source_file": ".agents/ORIGINAL_REQUEST.md", "file_type": "concept", "degree": 3}, {"id": "transcript_reconciler", "label": "Transcript Reconciler", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 13.5, "font": {"size": 0, "color": "#ffffff"}, "title": "Transcript Reconciler", "community": 0, "community_name": "Core App Architecture", "source_file": ".agents/ORIGINAL_REQUEST.md", "file_type": "concept", "degree": 2}, {"id": "voice_command_parser", "label": "Voice Command Parser", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 15.3, "font": {"size": 12, "color": "#ffffff"}, "title": "Voice Command Parser", "community": 0, "community_name": "Core App Architecture", "source_file": ".agents/ORIGINAL_REQUEST.md", "file_type": "concept", "degree": 3}, {"id": "global_hotkey_service", "label": "Global Hotkey Service", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 13.5, "font": {"size": 0, "color": "#ffffff"}, "title": "Global Hotkey Service", "community": 3, "community_name": "Targeting and Insertion", "source_file": ".agents/ORIGINAL_REQUEST.md", "file_type": "concept", "degree": 2}, {"id": "no_activate_overlay", "label": "No-Activate WPF Overlay Window", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 13.5, "font": {"size": 0, "color": "#ffffff"}, "title": "No-Activate WPF Overlay Window", "community": 3, "community_name": "Targeting and Insertion", "source_file": ".agents/ORIGINAL_REQUEST.md", "file_type": "concept", "degree": 2}, {"id": "target_context_service", "label": "Target Context Service", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 15.3, "font": {"size": 12, "color": "#ffffff"}, "title": "Target Context Service", "community": 3, "community_name": "Targeting and Insertion", "source_file": ".agents/ORIGINAL_REQUEST.md", "file_type": "concept", "degree": 3}, {"id": "insertion_adapter_chain", "label": "Text Insertion Adapter Chain", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 15.3, "font": {"size": 12, "color": "#ffffff"}, "title": "Text Insertion Adapter Chain", "community": 3, "community_name": "Targeting and Insertion", "source_file": ".agents/ORIGINAL_REQUEST.md", "file_type": "concept", "degree": 3}, {"id": "orchestrator_briefing", "label": "Project Orchestrator Briefing", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 18.8, "font": {"size": 12, "color": "#ffffff"}, "title": "Project Orchestrator Briefing", "community": 1, "community_name": "E2E Testing Track", "source_file": ".agents/orchestrator/BRIEFING.md", "file_type": "document", "degree": 5}, {"id": "orchestrator_original_request", "label": "Project Orchestrator Original Request", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "Project Orchestrator Original Request", "community": 11, "community_name": "Orchestrator Request", "source_file": ".agents/orchestrator/ORIGINAL_REQUEST.md", "file_type": "document", "degree": 0}, {"id": "orchestrator_project", "label": "Universal Dictation Project Plan (PROJECT.md)", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 11.8, "font": {"size": 0, "color": "#ffffff"}, "title": "Universal Dictation Project Plan (PROJECT.md)", "community": 1, "community_name": "E2E Testing Track", "source_file": ".agents/orchestrator/PROJECT.md", "file_type": "document", "degree": 1}, {"id": "orchestrator_readme", "label": "Orchestrator Directory README", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "Orchestrator Directory README", "community": 12, "community_name": "Orchestrator Readme", "source_file": ".agents/orchestrator/README.md", "file_type": "document", "degree": 0}, {"id": "orchestrator_plan", "label": "Universal Dictation Development Plan", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 22.4, "font": {"size": 12, "color": "#ffffff"}, "title": "Universal Dictation Development Plan", "community": 3, "community_name": "Targeting and Insertion", "source_file": ".agents/orchestrator/plan.md", "file_type": "document", "degree": 7}, {"id": "orchestrator_progress", "label": "Orchestrator Progress Tracker", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 11.8, "font": {"size": 0, "color": "#ffffff"}, "title": "Orchestrator Progress Tracker", "community": 1, "community_name": "E2E Testing Track", "source_file": ".agents/orchestrator/progress.md", "file_type": "document", "degree": 1}, {"id": "project_orchestrator_agent", "label": "Project Orchestrator Agent (teamwork_preview_orchestrator)", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 17.1, "font": {"size": 12, "color": "#ffffff"}, "title": "Project Orchestrator Agent (teamwork_preview_orchestrator)", "community": 4, "community_name": "Agent Orchestration", "source_file": ".agents/orchestrator/BRIEFING.md", "file_type": "concept", "degree": 4}, {"id": "milestone_1_foundations", "label": "Milestone 1: Solution Foundations & Core Interfaces", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 24.1, "font": {"size": 12, "color": "#ffffff"}, "title": "Milestone 1: Solution Foundations &amp; Core Interfaces", "community": 2, "community_name": "Build System and Interfaces", "source_file": ".agents/orchestrator/plan.md", "file_type": "concept", "degree": 8}, {"id": "milestone_2_core_logic", "label": "Milestone 2: Core Logic & Logging Redaction", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 22.4, "font": {"size": 12, "color": "#ffffff"}, "title": "Milestone 2: Core Logic &amp; Logging Redaction", "community": 0, "community_name": "Core App Architecture", "source_file": ".agents/orchestrator/plan.md", "file_type": "concept", "degree": 7}, {"id": "milestone_3_audio_hotkeys", "label": "Milestone 3: Audio Capture, Hotkeys & Targeting", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 22.4, "font": {"size": 12, "color": "#ffffff"}, "title": "Milestone 3: Audio Capture, Hotkeys &amp; Targeting", "community": 3, "community_name": "Targeting and Insertion", "source_file": ".agents/orchestrator/plan.md", "file_type": "concept", "degree": 7}, {"id": "milestone_4_transcription", "label": "Milestone 4: Transcription Adapters & Reconciler", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 22.4, "font": {"size": 12, "color": "#ffffff"}, "title": "Milestone 4: Transcription Adapters &amp; Reconciler", "community": 0, "community_name": "Core App Architecture", "source_file": ".agents/orchestrator/plan.md", "file_type": "concept", "degree": 7}, {"id": "milestone_5_insertion", "label": "Milestone 5: Safe Text Insertion Adapter Chain", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 15.3, "font": {"size": 12, "color": "#ffffff"}, "title": "Milestone 5: Safe Text Insertion Adapter Chain", "community": 3, "community_name": "Targeting and Insertion", "source_file": ".agents/orchestrator/plan.md", "file_type": "concept", "degree": 3}, {"id": "milestone_6_wpf_ui", "label": "Milestone 6: WPF Desktop UI Overlay & Composition", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 13.5, "font": {"size": 0, "color": "#ffffff"}, "title": "Milestone 6: WPF Desktop UI Overlay &amp; Composition", "community": 3, "community_name": "Targeting and Insertion", "source_file": ".agents/orchestrator/plan.md", "file_type": "concept", "degree": 2}, {"id": "milestone_7_integration", "label": "Milestone 7: Integration & Hardening", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 13.5, "font": {"size": 0, "color": "#ffffff"}, "title": "Milestone 7: Integration &amp; Hardening", "community": 1, "community_name": "E2E Testing Track", "source_file": ".agents/orchestrator/plan.md", "file_type": "concept", "degree": 2}, {"id": "e2e_testing_track", "label": "E2E Testing Track", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 13.5, "font": {"size": 0, "color": "#ffffff"}, "title": "E2E Testing Track", "community": 1, "community_name": "E2E Testing Track", "source_file": ".agents/orchestrator/PROJECT.md", "file_type": "concept", "degree": 2}, {"id": "sub_orch_e2e_briefing", "label": "E2E Testing Sub-Orchestrator Briefing", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 13.5, "font": {"size": 0, "color": "#ffffff"}, "title": "E2E Testing Sub-Orchestrator Briefing", "community": 5, "community_name": "E2E Sub-Orchestrator", "source_file": ".agents/sub_orch_e2e/BRIEFING.md", "file_type": "document", "degree": 2}, {"id": "sub_orch_e2e_original_request", "label": "E2E Sub-Orchestrator Original Request", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 11.8, "font": {"size": 0, "color": "#ffffff"}, "title": "E2E Sub-Orchestrator Original Request", "community": 5, "community_name": "E2E Sub-Orchestrator", "source_file": ".agents/sub_orch_e2e/ORIGINAL_REQUEST.md", "file_type": "document", "degree": 1}, {"id": "sub_orch_e2e_readme", "label": "E2E Testing Track Orchestrator Metadata README", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "E2E Testing Track Orchestrator Metadata README", "community": 13, "community_name": "E2E Sub-Orch Readme", "source_file": ".agents/sub_orch_e2e/README.md", "file_type": "document", "degree": 0}, {"id": "sub_orch_e2e_progress", "label": "E2E Sub-Orchestrator Progress", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 11.8, "font": {"size": 0, "color": "#ffffff"}, "title": "E2E Sub-Orchestrator Progress", "community": 5, "community_name": "E2E Sub-Orchestrator", "source_file": ".agents/sub_orch_e2e/progress.md", "file_type": "document", "degree": 1}, {"id": "e2e_sub_orchestrator_agent", "label": "E2E Testing Sub-Orchestrator Agent", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 22.4, "font": {"size": 12, "color": "#ffffff"}, "title": "E2E Testing Sub-Orchestrator Agent", "community": 1, "community_name": "E2E Testing Track", "source_file": ".agents/sub_orch_e2e/BRIEFING.md", "file_type": "concept", "degree": 7}, {"id": "test_infra_md", "label": "TEST_INFRA.md (Test Strategy Document)", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 11.8, "font": {"size": 0, "color": "#ffffff"}, "title": "TEST_INFRA.md (Test Strategy Document)", "community": 1, "community_name": "E2E Testing Track", "source_file": ".agents/sub_orch_e2e/ORIGINAL_REQUEST.md", "file_type": "concept", "degree": 1}, {"id": "test_ready_md", "label": "TEST_READY.md (Test Completion Signal)", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 13.5, "font": {"size": 0, "color": "#ffffff"}, "title": "TEST_READY.md (Test Completion Signal)", "community": 1, "community_name": "E2E Testing Track", "source_file": ".agents/sub_orch_e2e/ORIGINAL_REQUEST.md", "file_type": "concept", "degree": 2}, {"id": "sub_orch_m1_briefing", "label": "Milestone 1 Sub-Orchestrator Briefing", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 13.5, "font": {"size": 0, "color": "#ffffff"}, "title": "Milestone 1 Sub-Orchestrator Briefing", "community": 6, "community_name": "M1 Foundations Sub-Orch", "source_file": ".agents/sub_orch_m1_foundations/BRIEFING.md", "file_type": "document", "degree": 2}, {"id": "sub_orch_m1_original_request", "label": "Milestone 1 Sub-Orchestrator Original Request", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "Milestone 1 Sub-Orchestrator Original Request", "community": 14, "community_name": "M1 Sub-Orch Request", "source_file": ".agents/sub_orch_m1_foundations/ORIGINAL_REQUEST.md", "file_type": "document", "degree": 0}, {"id": "sub_orch_m1_readme", "label": "Milestone 1 Sub-Orchestrator Metadata README", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "Milestone 1 Sub-Orchestrator Metadata README", "community": 15, "community_name": "M1 Sub-Orch Readme", "source_file": ".agents/sub_orch_m1_foundations/README.md", "file_type": "document", "degree": 0}, {"id": "sub_orch_m1_scope", "label": "Milestone 1 Scope Document", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 11.8, "font": {"size": 0, "color": "#ffffff"}, "title": "Milestone 1 Scope Document", "community": 6, "community_name": "M1 Foundations Sub-Orch", "source_file": ".agents/sub_orch_m1_foundations/SCOPE.md", "file_type": "document", "degree": 1}, {"id": "sub_orch_m1_progress", "label": "Milestone 1 Sub-Orchestrator Progress", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 11.8, "font": {"size": 0, "color": "#ffffff"}, "title": "Milestone 1 Sub-Orchestrator Progress", "community": 6, "community_name": "M1 Foundations Sub-Orch", "source_file": ".agents/sub_orch_m1_foundations/progress.md", "file_type": "document", "degree": 1}, {"id": "m1_sub_orchestrator_agent", "label": "Milestone 1 Foundations Sub-Orchestrator Agent", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 22.4, "font": {"size": 12, "color": "#ffffff"}, "title": "Milestone 1 Foundations Sub-Orchestrator Agent", "community": 2, "community_name": "Build System and Interfaces", "source_file": ".agents/sub_orch_m1_foundations/BRIEFING.md", "file_type": "concept", "degree": 7}, {"id": "explorer_e2e_setup_briefing", "label": "Explorer E2E Setup Briefing", "color": {"background": "#FF9DA7", "border": "#FF9DA7", "highlight": {"background": "#ffffff", "border": "#FF9DA7"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "Explorer E2E Setup Briefing", "community": 7, "community_name": "E2E Explorer Briefing", "source_file": ".agents/teamwork_preview_explorer_e2e_setup/BRIEFING.md", "file_type": "document", "degree": 0}, {"id": "explorer_e2e_setup_original_request", "label": "Explorer E2E Setup Original Request", "color": {"background": "#9C755F", "border": "#9C755F", "highlight": {"background": "#ffffff", "border": "#9C755F"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "Explorer E2E Setup Original Request", "community": 8, "community_name": "E2E Explorer Request", "source_file": ".agents/teamwork_preview_explorer_e2e_setup/ORIGINAL_REQUEST.md", "file_type": "document", "degree": 0}, {"id": "explorer_e2e_setup_readme", "label": "Explorer E2E Setup README", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "Explorer E2E Setup README", "community": 10, "community_name": "E2E Explorer Readme", "source_file": ".agents/teamwork_preview_explorer_e2e_setup/README.md", "file_type": "document", "degree": 0}, {"id": "explorer_e2e_setup_handoff", "label": "Explorer E2E Setup Handoff Report", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 17.1, "font": {"size": 12, "color": "#ffffff"}, "title": "Explorer E2E Setup Handoff Report", "community": 2, "community_name": "Build System and Interfaces", "source_file": ".agents/teamwork_preview_explorer_e2e_setup/handoff.md", "file_type": "document", "degree": 4}, {"id": "explorer_e2e_setup_progress", "label": "Explorer E2E Setup Progress", "color": {"background": "#BAB0AC", "border": "#BAB0AC", "highlight": {"background": "#ffffff", "border": "#BAB0AC"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "Explorer E2E Setup Progress", "community": 9, "community_name": "E2E Explorer Progress", "source_file": ".agents/teamwork_preview_explorer_e2e_setup/progress.md", "file_type": "document", "degree": 0}, {"id": "explorer_agent_e2e_setup", "label": "Explorer Agent for E2E Codebase Investigation", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 13.5, "font": {"size": 0, "color": "#ffffff"}, "title": "Explorer Agent for E2E Codebase Investigation", "community": 2, "community_name": "Build System and Interfaces", "source_file": ".agents/teamwork_preview_explorer_e2e_setup/BRIEFING.md", "file_type": "concept", "degree": 2}, {"id": "rust_tauri_prior_prototype", "label": "Rust/Tauri/ScribeRx Prior Prototype (Removed)", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 13.5, "font": {"size": 0, "color": "#ffffff"}, "title": "Rust/Tauri/ScribeRx Prior Prototype (Removed)", "community": 4, "community_name": "Agent Orchestration", "source_file": ".agents/teamwork_preview_explorer_e2e_setup/handoff.md", "file_type": "concept", "degree": 2}, {"id": "directory_build_props", "label": "Directory.Build.props (Shared Build Settings)", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 13.5, "font": {"size": 0, "color": "#ffffff"}, "title": "Directory.Build.props (Shared Build Settings)", "community": 2, "community_name": "Build System and Interfaces", "source_file": ".agents/ORIGINAL_REQUEST.md", "file_type": "concept", "degree": 2}, {"id": "directory_packages_props", "label": "Directory.Packages.props (Central Package Management)", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 15.3, "font": {"size": 12, "color": "#ffffff"}, "title": "Directory.Packages.props (Central Package Management)", "community": 2, "community_name": "Build System and Interfaces", "source_file": ".agents/ORIGINAL_REQUEST.md", "file_type": "concept", "degree": 3}, {"id": "control_plane_api", "label": "ControlPlane.Api (ASP.NET Core Web API)", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 13.5, "font": {"size": 0, "color": "#ffffff"}, "title": "ControlPlane.Api (ASP.NET Core Web API)", "community": 0, "community_name": "Core App Architecture", "source_file": ".agents/orchestrator/PROJECT.md", "file_type": "concept", "degree": 2}, {"id": "4tier_e2e_methodology", "label": "4-Tier E2E Testing Methodology", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 13.5, "font": {"size": 0, "color": "#ffffff"}, "title": "4-Tier E2E Testing Methodology", "community": 1, "community_name": "E2E Testing Track", "source_file": ".agents/sub_orch_e2e/ORIGINAL_REQUEST.md", "file_type": "rationale", "degree": 2}, {"id": "central_package_management_pattern", "label": "Central Package Management Pattern", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 11.8, "font": {"size": 0, "color": "#ffffff"}, "title": "Central Package Management Pattern", "community": 2, "community_name": "Build System and Interfaces", "source_file": ".agents/ORIGINAL_REQUEST.md", "file_type": "rationale", "degree": 1}];
+const RAW_EDGES = [{"from": "agents_briefing", "to": "agents_original_request", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agents_original_request", "to": "azure_speech_adapter", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agents_original_request", "to": "core_port_interfaces", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agents_original_request", "to": "deepgram_nova3_adapter", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agents_original_request", "to": "dictation_session_state_machine", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agents_original_request", "to": "dotnet_solution_structure", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agents_original_request", "to": "global_hotkey_service", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agents_original_request", "to": "insertion_adapter_chain", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agents_original_request", "to": "logging_redaction_pipeline", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agents_original_request", "to": "no_activate_overlay", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agents_original_request", "to": "target_context_service", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agents_original_request", "to": "universal_dictation_app", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agents_original_request", "to": "voice_command_parser", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agents_original_request", "to": "wasapi_audio_capture", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agents_original_request", "to": "whisper_offline_adapter", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agents_original_request", "to": "e2e_sub_orchestrator_agent", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agents_original_request", "to": "orchestrator_briefing", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agents_handoff", "to": "project_orchestrator_agent", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "sentinel_agent", "to": "project_orchestrator_agent", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "sentinel_agent", "to": "universal_dictation_app", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "universal_dictation_app", "to": "rust_tauri_prior_prototype", "label": "conceptually_related_to", "title": "conceptually_related_to [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "dotnet_solution_structure", "to": "m1_sub_orchestrator_agent", "label": "implements", "title": "implements [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "dotnet_solution_structure", "to": "milestone_1_foundations", "label": "implements", "title": "implements [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "dictation_session_state_machine", "to": "milestone_2_core_logic", "label": "implements", "title": "implements [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "core_port_interfaces", "to": "m1_sub_orchestrator_agent", "label": "implements", "title": "implements [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "core_port_interfaces", "to": "milestone_1_foundations", "label": "implements", "title": "implements [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "logging_redaction_pipeline", "to": "milestone_2_core_logic", "label": "implements", "title": "implements [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "wasapi_audio_capture", "to": "azure_speech_adapter", "label": "shares_data_with", "title": "shares_data_with [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "wasapi_audio_capture", "to": "deepgram_nova3_adapter", "label": "shares_data_with", "title": "shares_data_with [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "wasapi_audio_capture", "to": "milestone_3_audio_hotkeys", "label": "implements", "title": "implements [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "wasapi_audio_capture", "to": "whisper_offline_adapter", "label": "shares_data_with", "title": "shares_data_with [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "deepgram_nova3_adapter", "to": "azure_speech_adapter", "label": "semantically_similar_to", "title": "semantically_similar_to [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "deepgram_nova3_adapter", "to": "control_plane_api", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "deepgram_nova3_adapter", "to": "milestone_4_transcription", "label": "implements", "title": "implements [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "azure_speech_adapter", "to": "control_plane_api", "label": "references", "title": "references [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "azure_speech_adapter", "to": "milestone_4_transcription", "label": "implements", "title": "implements [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "whisper_offline_adapter", "to": "milestone_4_transcription", "label": "implements", "title": "implements [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "transcript_reconciler", "to": "milestone_4_transcription", "label": "implements", "title": "implements [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "transcript_reconciler", "to": "voice_command_parser", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "voice_command_parser", "to": "milestone_2_core_logic", "label": "implements", "title": "implements [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "global_hotkey_service", "to": "milestone_3_audio_hotkeys", "label": "implements", "title": "implements [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "no_activate_overlay", "to": "milestone_6_wpf_ui", "label": "implements", "title": "implements [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "target_context_service", "to": "insertion_adapter_chain", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "target_context_service", "to": "milestone_3_audio_hotkeys", "label": "implements", "title": "implements [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "insertion_adapter_chain", "to": "milestone_5_insertion", "label": "implements", "title": "implements [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "orchestrator_briefing", "to": "e2e_testing_track", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "orchestrator_briefing", "to": "milestone_1_foundations", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "orchestrator_briefing", "to": "orchestrator_progress", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "orchestrator_briefing", "to": "orchestrator_project", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "orchestrator_plan", "to": "milestone_1_foundations", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "orchestrator_plan", "to": "milestone_2_core_logic", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "orchestrator_plan", "to": "milestone_3_audio_hotkeys", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "orchestrator_plan", "to": "milestone_4_transcription", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "orchestrator_plan", "to": "milestone_5_insertion", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "orchestrator_plan", "to": "milestone_6_wpf_ui", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "orchestrator_plan", "to": "milestone_7_integration", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "project_orchestrator_agent", "to": "e2e_sub_orchestrator_agent", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "project_orchestrator_agent", "to": "m1_sub_orchestrator_agent", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "milestone_1_foundations", "to": "m1_sub_orchestrator_agent", "label": "implements", "title": "implements [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "milestone_1_foundations", "to": "milestone_2_core_logic", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "milestone_1_foundations", "to": "milestone_3_audio_hotkeys", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "milestone_1_foundations", "to": "milestone_4_transcription", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "milestone_2_core_logic", "to": "milestone_3_audio_hotkeys", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "milestone_2_core_logic", "to": "milestone_4_transcription", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "milestone_3_audio_hotkeys", "to": "milestone_5_insertion", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "milestone_7_integration", "to": "test_ready_md", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "e2e_testing_track", "to": "4tier_e2e_methodology", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "sub_orch_e2e_briefing", "to": "sub_orch_e2e_original_request", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "sub_orch_e2e_briefing", "to": "sub_orch_e2e_progress", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "e2e_sub_orchestrator_agent", "to": "4tier_e2e_methodology", "label": "implements", "title": "implements [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "e2e_sub_orchestrator_agent", "to": "explorer_agent_e2e_setup", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "e2e_sub_orchestrator_agent", "to": "m1_sub_orchestrator_agent", "label": "semantically_similar_to", "title": "semantically_similar_to [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "e2e_sub_orchestrator_agent", "to": "test_infra_md", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "e2e_sub_orchestrator_agent", "to": "test_ready_md", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "sub_orch_m1_briefing", "to": "sub_orch_m1_progress", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "sub_orch_m1_briefing", "to": "sub_orch_m1_scope", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "m1_sub_orchestrator_agent", "to": "directory_build_props", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "m1_sub_orchestrator_agent", "to": "directory_packages_props", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "explorer_e2e_setup_handoff", "to": "explorer_agent_e2e_setup", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "explorer_e2e_setup_handoff", "to": "directory_build_props", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "explorer_e2e_setup_handoff", "to": "directory_packages_props", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "explorer_e2e_setup_handoff", "to": "rust_tauri_prior_prototype", "label": "references", "title": "references [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "directory_packages_props", "to": "central_package_management_pattern", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}];
+const LEGEND = [{"cid": 0, "color": "#4E79A7", "label": "Core App Architecture", "count": 13}, {"cid": 1, "color": "#F28E2B", "label": "E2E Testing Track", "count": 9}, {"cid": 2, "color": "#E15759", "label": "Build System and Interfaces", "count": 9}, {"cid": 3, "color": "#76B7B2", "label": "Targeting and Insertion", "count": 8}, {"cid": 4, "color": "#59A14F", "label": "Agent Orchestration", "count": 5}, {"cid": 5, "color": "#EDC948", "label": "E2E Sub-Orchestrator", "count": 3}, {"cid": 6, "color": "#B07AA1", "label": "M1 Foundations Sub-Orch", "count": 3}, {"cid": 7, "color": "#FF9DA7", "label": "E2E Explorer Briefing", "count": 1}, {"cid": 8, "color": "#9C755F", "label": "E2E Explorer Request", "count": 1}, {"cid": 9, "color": "#BAB0AC", "label": "E2E Explorer Progress", "count": 1}, {"cid": 10, "color": "#4E79A7", "label": "E2E Explorer Readme", "count": 1}, {"cid": 11, "color": "#F28E2B", "label": "Orchestrator Request", "count": 1}, {"cid": 12, "color": "#E15759", "label": "Orchestrator Readme", "count": 1}, {"cid": 13, "color": "#76B7B2", "label": "E2E Sub-Orch Readme", "count": 1}, {"cid": 14, "color": "#59A14F", "label": "M1 Sub-Orch Request", "count": 1}, {"cid": 15, "color": "#EDC948", "label": "M1 Sub-Orch Readme", "count": 1}];
+
+// HTML-escape helper — prevents XSS when injecting graph data into innerHTML
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// Build vis datasets
+const nodesDS = new vis.DataSet(RAW_NODES.map(n => ({
+  id: n.id, label: n.label, color: n.color, size: n.size,
+  font: n.font, title: n.title,
+  _community: n.community, _community_name: n.community_name,
+  _source_file: n.source_file, _file_type: n.file_type, _degree: n.degree,
+})));
+
+const edgesDS = new vis.DataSet(RAW_EDGES.map((e, i) => ({
+  id: i, from: e.from, to: e.to,
+  label: '',
+  title: e.title,
+  dashes: e.dashes,
+  width: e.width,
+  color: e.color,
+  arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+})));
+
+const container = document.getElementById('graph');
+const network = new vis.Network(container, { nodes: nodesDS, edges: edgesDS }, {
+  physics: {
+    enabled: true,
+    solver: 'forceAtlas2Based',
+    forceAtlas2Based: {
+      gravitationalConstant: -60,
+      centralGravity: 0.005,
+      springLength: 120,
+      springConstant: 0.08,
+      damping: 0.4,
+      avoidOverlap: 0.8,
+    },
+    stabilization: { iterations: 200, fit: true },
+  },
+  interaction: {
+    hover: true,
+    tooltipDelay: 100,
+    hideEdgesOnDrag: true,
+    navigationButtons: false,
+    keyboard: false,
+  },
+  nodes: { shape: 'dot', borderWidth: 1.5 },
+  edges: { smooth: { type: 'continuous', roundness: 0.2 }, selectionWidth: 3 },
+});
+
+network.once('stabilizationIterationsDone', () => {
+  network.setOptions({ physics: { enabled: false } });
+});
+
+function showInfo(nodeId) {
+  const n = nodesDS.get(nodeId);
+  if (!n) return;
+  const neighborIds = network.getConnectedNodes(nodeId);
+  const neighborItems = neighborIds.map(nid => {
+    const nb = nodesDS.get(nid);
+    const color = nb ? nb.color.background : '#555';
+    return `<span class="neighbor-link" style="border-left-color:${esc(color)}" onclick="focusNode(${JSON.stringify(nid)})">${esc(nb ? nb.label : nid)}</span>`;
+  }).join('');
+  document.getElementById('info-content').innerHTML = `
+    <div class="field"><b>${esc(n.label)}</b></div>
+    <div class="field">Type: ${esc(n._file_type || 'unknown')}</div>
+    <div class="field">Community: ${esc(n._community_name)}</div>
+    <div class="field">Source: ${esc(n._source_file || '-')}</div>
+    <div class="field">Degree: ${n._degree}</div>
+    ${neighborIds.length ? `<div class="field" style="margin-top:8px;color:#aaa;font-size:11px">Neighbors (${neighborIds.length})</div><div id="neighbors-list">${neighborItems}</div>` : ''}
+  `;
+}
+
+function focusNode(nodeId) {
+  network.focus(nodeId, { scale: 1.4, animation: true });
+  network.selectNodes([nodeId]);
+  showInfo(nodeId);
+}
+
+// Track hovered node — hover detection is more reliable than click params
+let hoveredNodeId = null;
+network.on('hoverNode', params => {
+  hoveredNodeId = params.node;
+  container.style.cursor = 'pointer';
+});
+network.on('blurNode', () => {
+  hoveredNodeId = null;
+  container.style.cursor = 'default';
+});
+container.addEventListener('click', () => {
+  if (hoveredNodeId !== null) {
+    showInfo(hoveredNodeId);
+    network.selectNodes([hoveredNodeId]);
+  }
+});
+network.on('click', params => {
+  if (params.nodes.length > 0) {
+    showInfo(params.nodes[0]);
+  } else if (hoveredNodeId === null) {
+    document.getElementById('info-content').innerHTML = '<span class="empty">Click a node to inspect it</span>';
+  }
+});
+
+const searchInput = document.getElementById('search');
+const searchResults = document.getElementById('search-results');
+searchInput.addEventListener('input', () => {
+  const q = searchInput.value.toLowerCase().trim();
+  searchResults.innerHTML = '';
+  if (!q) { searchResults.style.display = 'none'; return; }
+  const matches = RAW_NODES.filter(n => n.label.toLowerCase().includes(q)).slice(0, 20);
+  if (!matches.length) { searchResults.style.display = 'none'; return; }
+  searchResults.style.display = 'block';
+  matches.forEach(n => {
+    const el = document.createElement('div');
+    el.className = 'search-item';
+    el.textContent = n.label;
+    el.style.borderLeft = `3px solid ${n.color.background}`;
+    el.style.paddingLeft = '8px';
+    el.onclick = () => {
+      network.focus(n.id, { scale: 1.5, animation: true });
+      network.selectNodes([n.id]);
+      showInfo(n.id);
+      searchResults.style.display = 'none';
+      searchInput.value = '';
+    };
+    searchResults.appendChild(el);
+  });
+});
+document.addEventListener('click', e => {
+  if (!searchResults.contains(e.target) && e.target !== searchInput)
+    searchResults.style.display = 'none';
+});
+
+const hiddenCommunities = new Set();
+
+const selectAllCb = document.getElementById('select-all-cb');
+
+function updateSelectAllState() {
+  const total = LEGEND.length;
+  const hidden = hiddenCommunities.size;
+  selectAllCb.checked = hidden === 0;
+  selectAllCb.indeterminate = hidden > 0 && hidden < total;
+}
+
+function toggleAllCommunities(hide) {
+  document.querySelectorAll('.legend-item').forEach(item => {
+    hide ? item.classList.add('dimmed') : item.classList.remove('dimmed');
+  });
+  document.querySelectorAll('.legend-cb').forEach(cb => {
+    cb.checked = !hide;
+  });
+  LEGEND.forEach(c => {
+    if (hide) hiddenCommunities.add(c.cid); else hiddenCommunities.delete(c.cid);
+  });
+  const updates = RAW_NODES.map(n => ({ id: n.id, hidden: hide }));
+  nodesDS.update(updates);
+  updateSelectAllState();
+}
+
+const legendEl = document.getElementById('legend');
+LEGEND.forEach(c => {
+  const item = document.createElement('div');
+  item.className = 'legend-item';
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.className = 'legend-cb';
+  cb.checked = true;
+  cb.addEventListener('change', (e) => {
+    e.stopPropagation();
+    if (cb.checked) {
+      hiddenCommunities.delete(c.cid);
+      item.classList.remove('dimmed');
+    } else {
+      hiddenCommunities.add(c.cid);
+      item.classList.add('dimmed');
+    }
+    const updates = RAW_NODES
+      .filter(n => n.community === c.cid)
+      .map(n => ({ id: n.id, hidden: !cb.checked }));
+    nodesDS.update(updates);
+    updateSelectAllState();
+  });
+  item.innerHTML = `<div class="legend-dot" style="background:${c.color}"></div>
+    <span class="legend-label">${c.label}</span>
+    <span class="legend-count">${c.count}</span>`;
+  item.prepend(cb);
+  item.onclick = (e) => {
+    if (e.target === cb) return;
+    cb.checked = !cb.checked;
+    cb.dispatchEvent(new Event('change'));
+  };
+  legendEl.appendChild(item);
+});
+</script>
+<script>
+// Render hyperedges as shaded regions
+const hyperedges = [{"id": "agent_hierarchy_orchestration", "label": "Multi-level Agent Orchestration Hierarchy", "nodes": ["sentinel_agent", "project_orchestrator_agent", "e2e_sub_orchestrator_agent", "m1_sub_orchestrator_agent"], "relation": "participate_in", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": ".agents/orchestrator/BRIEFING.md"}, {"id": "stt_provider_audio_pipeline", "label": "Audio Capture to STT Provider Pipeline", "nodes": ["wasapi_audio_capture", "deepgram_nova3_adapter", "azure_speech_adapter", "whisper_offline_adapter", "transcript_reconciler"], "relation": "form", "confidence": "INFERRED", "confidence_score": 0.95, "source_file": ".agents/ORIGINAL_REQUEST.md"}, {"id": "safe_insertion_pipeline", "label": "Safe Text Insertion Pipeline (Target \u2192 Validate \u2192 Insert \u2192 Verify)", "nodes": ["target_context_service", "insertion_adapter_chain", "voice_command_parser", "transcript_reconciler"], "relation": "form", "confidence": "INFERRED", "confidence_score": 0.85, "source_file": ".agents/ORIGINAL_REQUEST.md"}];
+// afterDrawing passes ctx already transformed to network coordinate space.
+// Draw node positions raw — no manual pan/zoom/DPR math needed.
+network.on('afterDrawing', function(ctx) {
+    hyperedges.forEach(h => {
+        const positions = h.nodes
+            .map(nid => network.getPositions([nid])[nid])
+            .filter(p => p !== undefined);
+        if (positions.length < 2) return;
+        ctx.save();
+        ctx.globalAlpha = 0.12;
+        ctx.fillStyle = '#6366f1';
+        ctx.strokeStyle = '#6366f1';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        // Centroid and expanded hull in network coordinates
+        const cx = positions.reduce((s, p) => s + p.x, 0) / positions.length;
+        const cy = positions.reduce((s, p) => s + p.y, 0) / positions.length;
+        const expanded = positions.map(p => ({
+            x: cx + (p.x - cx) * 1.15,
+            y: cy + (p.y - cy) * 1.15
+        }));
+        ctx.moveTo(expanded[0].x, expanded[0].y);
+        expanded.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 0.4;
+        ctx.stroke();
+        // Label
+        ctx.globalAlpha = 0.8;
+        ctx.fillStyle = '#4f46e5';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(h.label, cx, cy - 5);
+        ctx.restore();
+    });
+});
+</script>
+</body>
+</html>

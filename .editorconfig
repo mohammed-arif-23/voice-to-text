@@ -1,0 +1,25 @@
+# Rules for the entire solution repository
+root = true
+
+# All files - general defaults
+[*]
+indent_style = space
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# C# source code files (.cs)
+[*.cs]
+indent_size = 4
+# Disable var for built-in types (e.g. use 'int' instead of 'var')
+csharp_style_var_for_built_in_types = false:warning
+# Sort System directives alphabetically first in using blocks
+dotnet_sort_system_directives_first = true:warning
+
+# C# project and MSBuild configuration files (.csproj, .props, .targets)
+[*.{csproj,props,targets,xml}]
+indent_size = 2
+
+# Configuration files (.json, .yml, .yaml)
+[*.{json,yml,yaml}]
+indent_size = 2

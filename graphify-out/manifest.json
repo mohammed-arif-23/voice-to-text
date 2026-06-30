@@ -1,0 +1,122 @@
+{
+  "global.json": {
+    "mtime": 1782815393.9674418,
+    "ast_hash": "447e611441ea835a9d3da692bb921760",
+    "semantic_hash": "447e611441ea835a9d3da692bb921760"
+  },
+  ".agents/BRIEFING.md": {
+    "mtime": 1782815895.7438772,
+    "ast_hash": "29bd4cf9fb3e064555ea84b9bad6b021",
+    "semantic_hash": "29bd4cf9fb3e064555ea84b9bad6b021"
+  },
+  ".agents/ORIGINAL_REQUEST.md": {
+    "mtime": 1782815883.0270517,
+    "ast_hash": "6c1b952c9cf2db06d46a93d757dcc505",
+    "semantic_hash": "6c1b952c9cf2db06d46a93d757dcc505"
+  },
+  ".agents/handoff.md": {
+    "mtime": 1782816382.656194,
+    "ast_hash": "df12e82ead44ec3b8bbeaedba845e3b8",
+    "semantic_hash": "df12e82ead44ec3b8bbeaedba845e3b8"
+  },
+  ".agents/orchestrator/BRIEFING.md": {
+    "mtime": 1782815988.4391923,
+    "ast_hash": "f35e65c8bad153934c3abcbaaac6a59c",
+    "semantic_hash": "f35e65c8bad153934c3abcbaaac6a59c"
+  },
+  ".agents/orchestrator/ORIGINAL_REQUEST.md": {
+    "mtime": 1782815908.8058827,
+    "ast_hash": "1f80d4a6b18bcf02ea1aceb8e3bd82de",
+    "semantic_hash": "1f80d4a6b18bcf02ea1aceb8e3bd82de"
+  },
+  ".agents/orchestrator/PROJECT.md": {
+    "mtime": 1782815995.3007631,
+    "ast_hash": "f748ea8ae532105a3fa98d63a55227ad",
+    "semantic_hash": "f748ea8ae532105a3fa98d63a55227ad"
+  },
+  ".agents/orchestrator/README.md": {
+    "mtime": 1782815889.6416862,
+    "ast_hash": "c32c441c5136c2aae9c21e50b6f28e20",
+    "semantic_hash": "c32c441c5136c2aae9c21e50b6f28e20"
+  },
+  ".agents/orchestrator/plan.md": {
+    "mtime": 1782815950.59811,
+    "ast_hash": "6a580661b3570dd9ae236a7a96800498",
+    "semantic_hash": "6a580661b3570dd9ae236a7a96800498"
+  },
+  ".agents/orchestrator/progress.md": {
+    "mtime": 1782816013.898601,
+    "ast_hash": "be8fdb938ea02173145d8eab8e790f0d",
+    "semantic_hash": "be8fdb938ea02173145d8eab8e790f0d"
+  },
+  ".agents/sub_orch_e2e/BRIEFING.md": {
+    "mtime": 1782816483.0615036,
+    "ast_hash": "344a5fffe1f3d8b18e0b36baea21388c",
+    "semantic_hash": "344a5fffe1f3d8b18e0b36baea21388c"
+  },
+  ".agents/sub_orch_e2e/ORIGINAL_REQUEST.md": {
+    "mtime": 1782816013.1265168,
+    "ast_hash": "c2a378324f2a018a3f219d77ec03b411",
+    "semantic_hash": "c2a378324f2a018a3f219d77ec03b411"
+  },
+  ".agents/sub_orch_e2e/README.md": {
+    "mtime": 1782815972.2287493,
+    "ast_hash": "13e10fbbe9c5cdb49f884c423b524517",
+    "semantic_hash": "13e10fbbe9c5cdb49f884c423b524517"
+  },
+  ".agents/sub_orch_e2e/progress.md": {
+    "mtime": 1782816491.7718117,
+    "ast_hash": "1f4a570297f3c99c97509c67b625c3cc",
+    "semantic_hash": "1f4a570297f3c99c97509c67b625c3cc"
+  },
+  ".agents/sub_orch_m1_foundations/BRIEFING.md": {
+    "mtime": 1782816256.4021084,
+    "ast_hash": "3dc3b0c542e256db91aa2217fc06c63f",
+    "semantic_hash": "3dc3b0c542e256db91aa2217fc06c63f"
+  },
+  ".agents/sub_orch_m1_foundations/ORIGINAL_REQUEST.md": {
+    "mtime": 1782816116.9624693,
+    "ast_hash": "4ee16e886c8db4661d908463562afae4",
+    "semantic_hash": "4ee16e886c8db4661d908463562afae4"
+  },
+  ".agents/sub_orch_m1_foundations/README.md": {
+    "mtime": 1782815974.0226629,
+    "ast_hash": "ad2ed6a22edbdfda0eddff469d08a5be",
+    "semantic_hash": "ad2ed6a22edbdfda0eddff469d08a5be"
+  },
+  ".agents/sub_orch_m1_foundations/SCOPE.md": {
+    "mtime": 1782816263.9064634,
+    "ast_hash": "7ef5a35d203e6583d6495fdaf7ed5c8c",
+    "semantic_hash": "7ef5a35d203e6583d6495fdaf7ed5c8c"
+  },
+  ".agents/sub_orch_m1_foundations/progress.md": {
+    "mtime": 1782816258.9347084,
+    "ast_hash": "0ba3864375a7a0f5ff8535dcd313ec55",
+    "semantic_hash": "0ba3864375a7a0f5ff8535dcd313ec55"
+  },
+  ".agents/teamwork_preview_explorer_e2e_setup/BRIEFING.md": {
+    "mtime": 1782816101.8157284,
+    "ast_hash": "c520469d91649c09b6c2e0134176bf35",
+    "semantic_hash": "c520469d91649c09b6c2e0134176bf35"
+  },
+  ".agents/teamwork_preview_explorer_e2e_setup/ORIGINAL_REQUEST.md": {
+    "mtime": 1782816061.6384602,
+    "ast_hash": "05924995d332365463228daa901eec2f",
+    "semantic_hash": "05924995d332365463228daa901eec2f"
+  },
+  ".agents/teamwork_preview_explorer_e2e_setup/README.md": {
+    "mtime": 1782816049.1567469,
+    "ast_hash": "7cabec05d5101f543c1790b463971c63",
+    "semantic_hash": "7cabec05d5101f543c1790b463971c63"
+  },
+  ".agents/teamwork_preview_explorer_e2e_setup/handoff.md": {
+    "mtime": 1782816109.9133925,
+    "ast_hash": "06a74a9b067d29a7d546eed03f21c598",
+    "semantic_hash": "06a74a9b067d29a7d546eed03f21c598"
+  },
+  ".agents/teamwork_preview_explorer_e2e_setup/progress.md": {
+    "mtime": 1782816111.7215629,
+    "ast_hash": "6c762bf32fdfbf7c0384b6ddc7ae0a0d",
+    "semantic_hash": "6c762bf32fdfbf7c0384b6ddc7ae0a0d"
+  }
+}

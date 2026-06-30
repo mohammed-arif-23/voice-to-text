@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Desktop.Core\Desktop.Core.csproj" />
+    <ProjectReference Include="..\Desktop.Audio\Desktop.Audio.csproj" />
+    <ProjectReference Include="..\Desktop.Transcription\Desktop.Transcription.csproj" />
+    <ProjectReference Include="..\Desktop.Targeting\Desktop.Targeting.csproj" />
+    <ProjectReference Include="..\Desktop.Insertion\Desktop.Insertion.csproj" />
+    <ProjectReference Include="..\Desktop.NativeInterop\Desktop.NativeInterop.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Serilog.Sinks.File" />
+    <PackageReference Include="OpenTelemetry" />
+  </ItemGroup>
+</Project>
