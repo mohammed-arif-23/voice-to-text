@@ -41,8 +41,7 @@ impl SqliteStorageEngine {
         let encryption_key = get_or_create_db_key(path.parent())?;
 
         // 2. Set SQLCipher key
-        let pragma_query = format!("PRAGMA key = '{}';", encryption_key.replace("'", "''"));
-        conn.execute(&pragma_query, []).map_err(|e| format!("SQLCipher key pragma failed: {}", e))?;
+        conn.pragma_update(None, "key", &encryption_key).map_err(|e| format!("SQLCipher key pragma failed: {}", e))?;
 
         // 3. Initialize schema
         conn.execute(
@@ -196,3 +195,118 @@ fn get_or_create_db_key(parent_dir: Option<&Path>) -> Result<String, String> {
         Ok(mock_key)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::io::Read;
+
+    #[test]
+    fn test_key_creation_and_derivation() {
+        let temp_dir = std::env::temp_dir();
+        let unique_id = uuid::Uuid::new_v4().to_string();
+        let test_dir = temp_dir.join(format!("scriberx_test_key_{}", unique_id));
+        fs::create_dir_all(&test_dir).unwrap();
+
+        // 1. Verify key file creation
+        let key = get_or_create_db_key(Some(&test_dir)).unwrap();
+        assert!(!key.is_empty(), "Key should not be empty");
+
+        let key_file_path = test_dir.join("scriberx.key");
+        assert!(key_file_path.exists(), "Key file scriberx.key should be created");
+
+        // 2. Verify key derivation reads the same key on subsequent calls
+        let read_key = get_or_create_db_key(Some(&test_dir)).unwrap();
+        assert_eq!(key, read_key, "Subsequent calls should return the same key");
+
+        // Clean up
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_sqlite_sqlcipher_encryption() {
+        let temp_dir = std::env::temp_dir();
+        let unique_id = uuid::Uuid::new_v4().to_string();
+        let test_dir = temp_dir.join(format!("scriberx_test_db_{}", unique_id));
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let db_path = test_dir.join("test_secure.db");
+        let db_path_str = db_path.to_str().unwrap();
+
+        // 1. Initialize storage and write data
+        {
+            let storage = SqliteStorageEngine::new(db_path_str).unwrap();
+            let entry = AuditLogEntry {
+                timestamp: 1625097600,
+                emr_app_name: "Test EMR".to_string(),
+                injected_text: "Prescribed 50mg medicine".to_string(),
+                had_low_confidence: false,
+            };
+            storage.log_audit_entry(&entry).unwrap();
+
+            // Verify we can read it back
+            let logs = storage.get_recent_audit_logs(10).unwrap();
+            assert_eq!(logs.len(), 1);
+            assert_eq!(logs[0].emr_app_name, "Test EMR");
+            assert_eq!(logs[0].injected_text, "Prescribed 50mg medicine");
+            assert_eq!(logs[0].had_low_confidence, false);
+        } // Connection is closed here
+
+        // 2. Verify that the SQLite file is indeed encrypted
+        let mut file = fs::File::open(&db_path).unwrap();
+        let mut header = [0u8; 16];
+        file.read_exact(&mut header).unwrap();
+
+        let sqlite_signature = b"SQLite format 3\0";
+        assert_ne!(
+            &header,
+            sqlite_signature,
+            "Database file must be encrypted and should not start with the SQLite signature"
+        );
+
+        // Clean up
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_bad_key_failure() {
+        let temp_dir = std::env::temp_dir();
+        let unique_id = uuid::Uuid::new_v4().to_string();
+        let test_dir = temp_dir.join(format!("scriberx_test_bad_key_{}", unique_id));
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let db_path = test_dir.join("test_bad_key.db");
+        let db_path_str = db_path.to_str().unwrap();
+
+        // 1. Create database and write some data
+        {
+            let storage = SqliteStorageEngine::new(db_path_str).unwrap();
+            let entry = AuditLogEntry {
+                timestamp: 1625097600,
+                emr_app_name: "Test EMR".to_string(),
+                injected_text: "Secure data".to_string(),
+                had_low_confidence: true,
+            };
+            storage.log_audit_entry(&entry).unwrap();
+        } // Closed
+
+        // 2. Modify the key file to contain a bad key
+        let key_file_path = test_dir.join("scriberx.key");
+        assert!(key_file_path.exists());
+
+        // Overwrite it with a wrong key
+        fs::write(&key_file_path, b"completely_different_and_wrong_key_value").unwrap();
+
+        // 3. Attempt to open the database again. It should fail to initialize due to bad key.
+        let result = SqliteStorageEngine::new(db_path_str);
+        assert!(
+            result.is_err(),
+            "Opening the database with a modified/bad key must return an error"
+        );
+
+        // Clean up
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+}
+
