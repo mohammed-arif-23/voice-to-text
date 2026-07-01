@@ -98,7 +98,12 @@ public partial class MainWindow : Window
     }
 
     private const int HOTKEY_ID_CTRL_ALT_D = 9001;
+    private const int HOTKEY_ID_F9 = 9002;
+    private const int HOTKEY_ID_F10 = 9003;
+    
     private const uint VK_D = 0x44;
+    private const uint VK_F9 = 0x78;
+    private const uint VK_F10 = 0x79;
     private const uint MOD_ALT = 0x0001;
     private const uint MOD_CONTROL = 0x0002;
 
@@ -108,23 +113,30 @@ public partial class MainWindow : Window
         RegisterHotKey(hwnd, HOTKEY_ID, 0, VK_CAPITAL);
         // Register Ctrl+Alt+D as fallback
         RegisterHotKey(hwnd, HOTKEY_ID_CTRL_ALT_D, MOD_CONTROL | MOD_ALT, VK_D);
+        // Register F9 & F10 fallback hotkeys
+        RegisterHotKey(hwnd, HOTKEY_ID_F9, 0, VK_F9);
+        RegisterHotKey(hwnd, HOTKEY_ID_F10, 0, VK_F10);
     }
 
     private IntPtr HwndMessageHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         const int WM_HOTKEY = 0x0312;
 
-        if (msg == WM_HOTKEY && (wParam.ToInt32() == HOTKEY_ID || wParam.ToInt32() == HOTKEY_ID_CTRL_ALT_D))
+        if (msg == WM_HOTKEY)
         {
-            if (!_isDictating)
+            int hotkeyId = wParam.ToInt32();
+            if (hotkeyId == HOTKEY_ID || hotkeyId == HOTKEY_ID_CTRL_ALT_D || hotkeyId == HOTKEY_ID_F9 || hotkeyId == HOTKEY_ID_F10)
             {
-                StartDictationFlow();
+                if (!_isDictating)
+                {
+                    StartDictationFlow();
+                }
+                else
+                {
+                    StopDictationFlow();
+                }
+                handled = true;
             }
-            else
-            {
-                StopDictationFlow();
-            }
-            handled = true;
         }
 
         return IntPtr.Zero;
@@ -293,6 +305,8 @@ public partial class MainWindow : Window
         var helper = new WindowInteropHelper(this);
         UnregisterHotKey(helper.Handle, HOTKEY_ID);
         UnregisterHotKey(helper.Handle, HOTKEY_ID_CTRL_ALT_D);
+        UnregisterHotKey(helper.Handle, HOTKEY_ID_F9);
+        UnregisterHotKey(helper.Handle, HOTKEY_ID_F10);
         _audioCapture.Dispose();
         _transcriptionProvider.Dispose();
     }
