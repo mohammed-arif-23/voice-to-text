@@ -11,6 +11,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Windows built-in Speech Recognition — free, offline, no API key -->
+    <PackageReference Include="System.Speech" />
+    <!-- Keep Deepgram reference so existing interfaces still compile if needed -->
     <PackageReference Include="Deepgram" />
     <PackageReference Include="Microsoft.CognitiveServices.Speech" />
     <PackageReference Include="Whisper.net" />

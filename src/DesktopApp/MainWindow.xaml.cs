@@ -1,13 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.InteropServices;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
-using Desktop.Audio;
 using Desktop.Core;
 using Desktop.Insertion;
 using Desktop.Targeting;
@@ -17,9 +14,13 @@ namespace DesktopApp;
 
 public partial class MainWindow : Window
 {
+    // ──────────────────────────────────────────────
+    // Win32 / WM_HOTKEY plumbing
+    // ──────────────────────────────────────────────
     private const int WS_EX_NOACTIVATE = 0x08000000;
     private const int WS_EX_TOOLWINDOW = 0x00000080;
     private const int GWL_EXSTYLE = -20;
+    private const int WM_HOTKEY = 0x0312;
 
     [DllImport("user32.dll", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
@@ -37,296 +38,371 @@ public partial class MainWindow : Window
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
-    private const int HOTKEY_ID = 9000;
-    private const uint VK_CAPITAL = 0x14; // Caps Lock
+    // Hotkey IDs
+    private const int HOTKEY_CAPSLOCK = 9000;
+    private const int HOTKEY_CTRL_ALT_D = 9001;
+    private const int HOTKEY_F9 = 9002;
+    private const int HOTKEY_F10 = 9003;
 
-    private readonly WasapiAudioCaptureService? _audioCapture;
-    private readonly DeepgramTranscriptionProvider? _transcriptionProvider;
-    private readonly TargetContextService? _targetContextService;
-    private readonly InsertionAdapterChain? _insertionChain;
-    private readonly TranscriptReconciler? _reconciler;
-    private readonly DictationSessionStateMachine? _stateMachine;
-    private CancellationTokenSource? _captureCts;
-
-    private TargetContext? _capturedContext;
-    private bool _isDictating;
-
-    public MainWindow()
-    {
-        try
-        {
-            InitializeComponent();
-
-            _stateMachine = new DictationSessionStateMachine();
-            _audioCapture = new WasapiAudioCaptureService();
-            _transcriptionProvider = new DeepgramTranscriptionProvider();
-            _targetContextService = new TargetContextService();
-            _reconciler = new TranscriptReconciler();
-
-            var adapters = new List<ITextInsertionAdapter>
-            {
-                new BrowserExtensionAdapter { ExtensionConnected = false },
-                new UiaValuePatternAdapter(),
-                new SendInputAdapter(),
-                new ClipboardFallbackAdapter()
-            };
-            _insertionChain = new InsertionAdapterChain(adapters);
-
-            _transcriptionProvider.SegmentReceived += OnSegmentReceived;
-            _transcriptionProvider.ErrorOccurred += OnTranscriptionError;
-            _audioCapture.BufferOverflow += OnAudioOverflow;
-
-            Loaded += OnLoaded;
-            Closing += OnClosing;
-        }
-        catch (Exception ex)
-        {
-            System.IO.File.WriteAllText("desktop_app_error.txt", "INITIALIZATION FAILED:\r\n" + ex.ToString());
-            MessageBox.Show("Initialization error: " + ex.Message + "\nDetails written to desktop_app_error.txt");
-            Application.Current.Shutdown();
-        }
-    }
-
-    private void OnLoaded(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            // Position window near System Tray (bottom right)
-            var desktopWorkingArea = SystemParameters.WorkArea;
-            Left = desktopWorkingArea.Right - Width - 10;
-            Top = desktopWorkingArea.Bottom - Height - 10;
-
-            // Apply WS_EX_NOACTIVATE to prevent focus stealing
-            var helper = new WindowInteropHelper(this);
-            int exStyle = GetWindowLong(helper.Handle, GWL_EXSTYLE);
-            SetWindowLong(helper.Handle, GWL_EXSTYLE, exStyle | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW);
-
-            // Bind hotkey
-            HwndSource source = HwndSource.FromHwnd(helper.Handle);
-            source.AddHook(HwndMessageHook);
-
-            RegisterCapslockHotkey(helper.Handle);
-        }
-        catch (Exception ex)
-        {
-            System.IO.File.WriteAllText("desktop_app_error.txt", "ONLOADED EXCEPTION:\r\n" + ex.ToString());
-            MessageBox.Show("OnLoaded error: " + ex.Message + "\nDetails written to desktop_app_error.txt");
-            Application.Current.Shutdown();
-        }
-    }
-
-    private const int HOTKEY_ID_CTRL_ALT_D = 9001;
-    private const int HOTKEY_ID_F9 = 9002;
-    private const int HOTKEY_ID_F10 = 9003;
-    
+    // Virtual key codes
+    private const uint VK_CAPITAL = 0x14;
     private const uint VK_D = 0x44;
     private const uint VK_F9 = 0x78;
     private const uint VK_F10 = 0x79;
     private const uint MOD_ALT = 0x0001;
     private const uint MOD_CONTROL = 0x0002;
 
-    private void RegisterCapslockHotkey(IntPtr hwnd)
+    // ──────────────────────────────────────────────
+    // Services
+    // ──────────────────────────────────────────────
+    private readonly WindowsSpeechTranscriptionProvider _speechProvider;
+    private readonly TargetContextService _targetContextService;
+    private readonly InsertionAdapterChain _insertionChain;
+    private readonly TranscriptReconciler _reconciler;
+
+    // State
+    private volatile bool _isDictating;
+    private TargetContext? _capturedContext;
+
+    // ──────────────────────────────────────────────
+    // Constructor
+    // ──────────────────────────────────────────────
+    public MainWindow()
     {
-        // Try to register Caps Lock
-        RegisterHotKey(hwnd, HOTKEY_ID, 0, VK_CAPITAL);
-        // Register Ctrl+Alt+D as fallback
-        RegisterHotKey(hwnd, HOTKEY_ID_CTRL_ALT_D, MOD_CONTROL | MOD_ALT, VK_D);
-        // Register F9 & F10 fallback hotkeys
-        RegisterHotKey(hwnd, HOTKEY_ID_F9, 0, VK_F9);
-        RegisterHotKey(hwnd, HOTKEY_ID_F10, 0, VK_F10);
+        try
+        {
+            InitializeComponent();
+
+            // Windows SAPI — completely free, offline, no API key
+            _speechProvider = new WindowsSpeechTranscriptionProvider();
+            _speechProvider.SegmentReceived += OnSegmentReceived;
+            _speechProvider.RecognitionCompleted += OnRecognitionCompleted;
+            _speechProvider.ErrorOccurred += OnSpeechError;
+
+            _targetContextService = new TargetContextService();
+            _reconciler = new TranscriptReconciler();
+
+            var adapters = new List<ITextInsertionAdapter>
+            {
+                new UiaValuePatternAdapter(),   // UI Automation (most apps)
+                new SendInputAdapter(),          // Raw keyboard simulation
+                new ClipboardFallbackAdapter()   // Clipboard + Ctrl+V (ultimate fallback)
+            };
+            _insertionChain = new InsertionAdapterChain(adapters);
+
+            Loaded += OnLoaded;
+            Closing += OnClosing;
+        }
+        catch (Exception ex)
+        {
+            LogError("INIT", ex);
+            MessageBox.Show($"Startup error: {ex.Message}\nSee desktop_app_error.txt for details.");
+            Application.Current.Shutdown();
+        }
     }
 
+    // ──────────────────────────────────────────────
+    // Window loaded
+    // ──────────────────────────────────────────────
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            // Position bottom-right, above the taskbar
+            var workArea = SystemParameters.WorkArea;
+            Left = workArea.Right - Width - 16;
+            Top = workArea.Bottom - Height - 16;
+
+            var helper = new WindowInteropHelper(this);
+            IntPtr hwnd = helper.Handle;
+
+            // Prevent overlay from stealing focus
+            int exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+            SetWindowLong(hwnd, GWL_EXSTYLE, exStyle | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW);
+
+            // Hook window messages so we receive WM_HOTKEY
+            HwndSource source = HwndSource.FromHwnd(hwnd);
+            source.AddHook(HwndMessageHook);
+
+            // Register hotkeys (all are independent toggles)
+            RegisterHotKey(hwnd, HOTKEY_CAPSLOCK, 0, VK_CAPITAL);
+            RegisterHotKey(hwnd, HOTKEY_CTRL_ALT_D, MOD_CONTROL | MOD_ALT, VK_D);
+            RegisterHotKey(hwnd, HOTKEY_F9, 0, VK_F9);
+            RegisterHotKey(hwnd, HOTKEY_F10, 0, VK_F10);
+
+            SetIdle("Press F9 (or Caps Lock / Ctrl+Alt+D) to dictate");
+        }
+        catch (Exception ex)
+        {
+            LogError("ONLOADED", ex);
+            MessageBox.Show($"Load error: {ex.Message}\nSee desktop_app_error.txt for details.");
+            Application.Current.Shutdown();
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // Hotkey handler — runs on UI thread
+    // ──────────────────────────────────────────────
     private IntPtr HwndMessageHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        const int WM_HOTKEY = 0x0312;
+        if (msg != WM_HOTKEY) return IntPtr.Zero;
 
-        if (msg == WM_HOTKEY)
+        int id = wParam.ToInt32();
+        bool isOurHotkey = id == HOTKEY_CAPSLOCK || id == HOTKEY_CTRL_ALT_D
+                         || id == HOTKEY_F9     || id == HOTKEY_F10;
+        if (!isOurHotkey) return IntPtr.Zero;
+
+        handled = true;
+
+        if (_isDictating)
         {
-            int hotkeyId = wParam.ToInt32();
-            if (hotkeyId == HOTKEY_ID || hotkeyId == HOTKEY_ID_CTRL_ALT_D || hotkeyId == HOTKEY_ID_F9 || hotkeyId == HOTKEY_ID_F10)
-            {
-                if (!_isDictating)
-                {
-                    StartDictationFlow();
-                }
-                else
-                {
-                    StopDictationFlow();
-                }
-                handled = true;
-            }
+            // User pressed hotkey again to cancel manually
+            StopDictation(insertText: false);
+        }
+        else
+        {
+            // ⚡ Capture BEFORE the overlay activates — this is the text field the user wants
+            try { _capturedContext = _targetContextService.CaptureContext(); }
+            catch { _capturedContext = null; }
+
+            StartDictation();
         }
 
         return IntPtr.Zero;
     }
 
-    private void StartDictationFlow()
+    // ──────────────────────────────────────────────
+    // Start dictation
+    // ──────────────────────────────────────────────
+    private void StartDictation()
     {
+        if (_isDictating) return;
         _isDictating = true;
-        _reconciler?.Clear();
+        _reconciler.Clear();
 
-        try
+        SetCapturing();
+
+        // Kick off SAPI on a background thread (non-blocking)
+        Task.Run(() =>
         {
-            // Capture focus context
-            _capturedContext = _targetContextService?.CaptureContext();
-
-            // Set UI State
-            Dispatcher.Invoke(() =>
+            try
             {
-                StatusIndicator.Fill = new SolidColorBrush(Color.FromRgb(255, 59, 48)); // Red
-                StatusLabel.Text = "CAPTURING";
-                TranscriptText.Text = "Listening...";
-            });
-
-            _stateMachine?.TransitionTo(DictationState.Arming);
-            _audioCapture?.StartCapture("Default Mic");
-            _stateMachine?.TransitionTo(DictationState.Capturing);
-
-            // Connect Deepgram
-            _stateMachine?.TransitionTo(DictationState.Streaming);
-            _transcriptionProvider?.ConnectAsync("dg_valid_key", CancellationToken.None).GetAwaiter().GetResult();
-
-            _captureCts = new CancellationTokenSource();
-            Task.Run(() => StreamAudioAsync(_captureCts.Token));
-        }
-        catch (Exception ex)
-        {
-            HandleFailure(ex.Message);
-        }
-    }
-
-    private async Task StreamAudioAsync(CancellationToken token)
-    {
-        if (_audioCapture == null || _transcriptionProvider == null) return;
-        try
-        {
-            await foreach (var frame in _audioCapture.StreamFramesAsync(token))
-            {
-                await _transcriptionProvider.SendAudioAsync(frame, token);
+                _speechProvider.StartListening(silenceSeconds: 2);
             }
-        }
-        catch (Exception)
-        {
-            // Stream stopped or cancelled
-        }
+            catch (Exception ex)
+            {
+                // Most common: no microphone configured in Windows
+                Dispatcher.Invoke(() => HandleError("Microphone error: " + ex.Message));
+            }
+        });
     }
 
-    private void StopDictationFlow()
+    // ──────────────────────────────────────────────
+    // Stop dictation (called from either UI or background thread)
+    // ──────────────────────────────────────────────
+    private void StopDictation(bool insertText)
     {
+        if (!_isDictating) return;
         _isDictating = false;
-        _captureCts?.Cancel();
 
-        try
+        _speechProvider.StopListening();
+
+        if (!insertText)
         {
-            _stateMachine?.TransitionTo(DictationState.Finalizing);
-            _audioCapture?.StopCapture();
-            _transcriptionProvider?.DisconnectAsync().GetAwaiter().GetResult();
-
-            string textToInsert = _reconciler?.GetReconciledText() ?? "";
-
-            if (string.IsNullOrWhiteSpace(textToInsert))
-            {
-                ResetToIdle("No speech detected.");
-                return;
-            }
-
-            _stateMachine?.TransitionTo(DictationState.ReadyToInsert);
-
-            // Revalidate Target Context
-            if (_capturedContext != null && _targetContextService != null && _insertionChain != null)
-            {
-                _stateMachine?.TransitionTo(DictationState.ValidatingTarget);
-                _targetContextService.Revalidate(_capturedContext);
-
-                // Insert Text
-                _stateMachine?.TransitionTo(DictationState.Inserting);
-                var enabledAdapters = new List<AdapterKind>
-                {
-                    AdapterKind.BrowserExtension,
-                    AdapterKind.UiaValuePattern,
-                    AdapterKind.SendInput,
-                    AdapterKind.ClipboardFallback
-                };
-
-                _stateMachine?.TransitionTo(DictationState.Verifying);
-                var result = _insertionChain.ExecuteAsync(textToInsert, _capturedContext, enabledAdapters).GetAwaiter().GetResult();
-
-                if (result.Success)
-                {
-                    _stateMachine?.TransitionTo(DictationState.Completed);
-                    ResetToIdle("Text inserted!");
-                }
-                else
-                {
-                    throw new InsertionFailedException("Target insertion chain failed.");
-                }
-            }
+            Dispatcher.Invoke(() => SetIdle("Cancelled."));
+            Task.Delay(1500).ContinueWith(_ =>
+                Dispatcher.Invoke(() => SetIdle("Press F9 (or Caps Lock / Ctrl+Alt+D) to dictate")));
+            return;
         }
-        catch (Exception ex)
+
+        // Insert on a background thread — never block the UI
+        Task.Run(async () =>
         {
-            HandleFailure(ex.Message);
-        }
+            try
+            {
+                string text = _reconciler.GetReconciledText();
+
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    Dispatcher.Invoke(() => SetIdle("Nothing heard. Try again."));
+                    await Task.Delay(2000);
+                    Dispatcher.Invoke(() => SetIdle("Press F9 (or Caps Lock / Ctrl+Alt+D) to dictate"));
+                    return;
+                }
+
+                Dispatcher.Invoke(() =>
+                {
+                    StatusIndicator.Fill = new SolidColorBrush(Color.FromRgb(48, 209, 88)); // Green
+                    StatusLabel.Text = "INSERTING";
+                    TranscriptText.Text = text;
+                });
+
+                // Small delay so Windows focus has time to return to the original window
+                await Task.Delay(150);
+
+                bool inserted = false;
+                if (_capturedContext != null)
+                {
+                    var enabledAdapters = new List<AdapterKind>
+                    {
+                        AdapterKind.UiaValuePattern,
+                        AdapterKind.SendInput,
+                        AdapterKind.ClipboardFallback
+                    };
+
+                    try
+                    {
+                        var result = await _insertionChain.ExecuteAsync(text, _capturedContext, enabledAdapters);
+                        inserted = result.Success;
+                    }
+                    catch (Exception ex)
+                    {
+                        LogError("INSERT", ex);
+                    }
+                }
+
+                if (!inserted)
+                {
+                    // Ultimate fallback: put text in clipboard and Ctrl+V
+                    await TryClipboardPaste(text);
+                }
+
+                Dispatcher.Invoke(() => SetIdle("Done! Press F9 to dictate again."));
+                await Task.Delay(3000);
+                Dispatcher.Invoke(() => SetIdle("Press F9 (or Caps Lock / Ctrl+Alt+D) to dictate"));
+            }
+            catch (Exception ex)
+            {
+                LogError("STOP_FLOW", ex);
+                Dispatcher.Invoke(() => HandleError(ex.Message));
+            }
+        });
     }
 
+    // ──────────────────────────────────────────────
+    // SAPI event handlers
+    // ──────────────────────────────────────────────
+
+    /// Called for interim (partial) results — update UI live
     private void OnSegmentReceived(TranscriptSegment segment)
     {
-        _reconciler?.AddSegment(segment);
-        string currentText = _reconciler?.GetReconciledText() ?? "";
+        _reconciler.AddSegment(segment);
+        string current = _reconciler.GetReconciledText();
+
+        // For interim, show a preview including the partial word
+        string display = segment.Kind == SegmentKind.Interim
+            ? (string.IsNullOrEmpty(current) ? segment.Text : current + " " + segment.Text).Trim()
+            : current;
 
         Dispatcher.Invoke(() =>
         {
-            TranscriptText.Text = string.IsNullOrEmpty(currentText) ? "Listening..." : currentText;
+            TranscriptText.Text = string.IsNullOrWhiteSpace(display) ? "Listening..." : display;
         });
     }
 
-    private void OnTranscriptionError(Exception ex)
+    /// Called when SAPI silence-timeout fires — this is the auto-stop
+    private void OnRecognitionCompleted()
     {
-        HandleFailure("Transcription provider error.");
+        // Guard: only act if we are still in dictation mode
+        if (!_isDictating) return;
+        StopDictation(insertText: true);
     }
 
-    private void OnAudioOverflow(AudioBufferOverflowEvent ev)
+    private void OnSpeechError(Exception ex)
+    {
+        LogError("SPEECH", ex);
+        Dispatcher.Invoke(() => HandleError("Speech recognition error: " + ex.Message));
+    }
+
+    // ──────────────────────────────────────────────
+    // Clipboard paste fallback (no dependencies)
+    // ──────────────────────────────────────────────
+    [DllImport("user32.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);
+
+    private const byte VK_CONTROL = 0x11;
+    private const byte VK_V = 0x56;
+    private const uint KEYEVENTF_KEYUP = 0x0002;
+
+    private static async Task TryClipboardPaste(string text)
+    {
+        try
+        {
+            // Must set clipboard on STA thread
+            var tcs = new TaskCompletionSource<bool>();
+            var sta = new System.Threading.Thread(() =>
+            {
+                try { System.Windows.Clipboard.SetText(text); tcs.SetResult(true); }
+                catch { tcs.SetResult(false); }
+            });
+            sta.SetApartmentState(System.Threading.ApartmentState.STA);
+            sta.Start();
+            await tcs.Task;
+
+            await Task.Delay(80);
+
+            // Simulate Ctrl+V
+            keybd_event(VK_CONTROL, 0, 0, 0);
+            keybd_event(VK_V, 0, 0, 0);
+            keybd_event(VK_V, 0, KEYEVENTF_KEYUP, 0);
+            keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0);
+        }
+        catch { /* ignore */ }
+    }
+
+    // ──────────────────────────────────────────────
+    // UI state helpers
+    // ──────────────────────────────────────────────
+    private void SetCapturing()
     {
         Dispatcher.Invoke(() =>
         {
-            TranscriptText.Text = "[Warning: Audio buffer overflow]";
+            StatusIndicator.Fill = new SolidColorBrush(Color.FromRgb(255, 59, 48)); // Red
+            StatusLabel.Text = "LISTENING";
+            TranscriptText.Text = "Listening...";
         });
     }
 
-    private void HandleFailure(string message)
+    private void SetIdle(string message = "Press F9 (or Caps Lock / Ctrl+Alt+D) to dictate")
+    {
+        StatusIndicator.Fill = new SolidColorBrush(Color.FromRgb(142, 142, 147)); // Gray
+        StatusLabel.Text = "IDLE";
+        TranscriptText.Text = message;
+    }
+
+    private void HandleError(string message)
     {
         _isDictating = false;
-        _captureCts?.Cancel();
-        _stateMachine?.TransitionTo(DictationState.FatalFailure);
+        StatusIndicator.Fill = new SolidColorBrush(Color.FromRgb(255, 149, 0)); // Orange
+        StatusLabel.Text = "ERROR";
+        TranscriptText.Text = message;
 
-        Dispatcher.Invoke(() =>
-        {
-            StatusIndicator.Fill = new SolidColorBrush(Color.FromRgb(255, 149, 0)); // Orange/Error
-            StatusLabel.Text = "FAILURE";
-            TranscriptText.Text = message;
-        });
-
-        Task.Delay(3000).ContinueWith(_ => ResetToIdle("Press Caps Lock to dictate..."), TaskScheduler.Default);
+        Task.Delay(4000).ContinueWith(_ =>
+            Dispatcher.Invoke(() => SetIdle("Press F9 (or Caps Lock / Ctrl+Alt+D) to dictate")));
     }
 
-    private void ResetToIdle(string placeholderText)
+    private static void LogError(string context, Exception ex)
     {
-        _stateMachine?.TransitionTo(DictationState.Idle);
-        Dispatcher.Invoke(() =>
+        try
         {
-            StatusIndicator.Fill = new SolidColorBrush(Color.FromRgb(142, 142, 147)); // Gray
-            StatusLabel.Text = "IDLE";
-            TranscriptText.Text = placeholderText;
-        });
+            System.IO.File.WriteAllText(
+                "desktop_app_error.txt",
+                $"[{context}] {DateTime.Now:HH:mm:ss}\r\n{ex}\r\n");
+        }
+        catch { /* ignore */ }
     }
 
+    // ──────────────────────────────────────────────
+    // Window closing
+    // ──────────────────────────────────────────────
     private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
         var helper = new WindowInteropHelper(this);
-        UnregisterHotKey(helper.Handle, HOTKEY_ID);
-        UnregisterHotKey(helper.Handle, HOTKEY_ID_CTRL_ALT_D);
-        UnregisterHotKey(helper.Handle, HOTKEY_ID_F9);
-        UnregisterHotKey(helper.Handle, HOTKEY_ID_F10);
-        _audioCapture?.Dispose();
-        _transcriptionProvider?.Dispose();
+        UnregisterHotKey(helper.Handle, HOTKEY_CAPSLOCK);
+        UnregisterHotKey(helper.Handle, HOTKEY_CTRL_ALT_D);
+        UnregisterHotKey(helper.Handle, HOTKEY_F9);
+        UnregisterHotKey(helper.Handle, HOTKEY_F10);
+        _speechProvider.Dispose();
     }
 }

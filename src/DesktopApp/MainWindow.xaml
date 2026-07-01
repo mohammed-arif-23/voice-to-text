@@ -28,7 +28,7 @@
                 <!-- Status Label -->
                 <TextBlock x:Name="StatusLabel" Text="IDLE" FontWeight="SemiBold" FontSize="11" Foreground="#FF8E8E93"/>
                 <!-- Live Transcript Text -->
-                <TextBlock x:Name="TranscriptText" Text="Press Caps Lock to dictate..." FontSize="13" Foreground="#FFFFFFFF" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+                <TextBlock x:Name="TranscriptText" Text="Press F9 to dictate..." FontSize="13" Foreground="#FFFFFFFF" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
             </StackPanel>
         </Grid>
     </Border>

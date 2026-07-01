@@ -35,6 +35,9 @@
     <PackageVersion Include="Serilog.Sinks.Console"                                   Version="6.0.0" />
     <PackageVersion Include="Serilog.Enrichers.Thread"                                Version="4.0.0" />
 
+    <!-- Windows Speech Recognition (SAPI) — free, offline, no API key -->
+    <PackageVersion Include="System.Speech"                                           Version="9.0.5" />
+
     <!-- Audio: NAudio 3.x with new WasapiRecorder API -->
     <PackageVersion Include="NAudio"                                                   Version="3.0.0-preview.15" />
     <PackageVersion Include="NAudio.Wasapi"                                            Version="3.0.0-preview.15" />
