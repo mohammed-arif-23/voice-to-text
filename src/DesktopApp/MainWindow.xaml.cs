@@ -55,10 +55,10 @@ public partial class MainWindow : Window
     // ──────────────────────────────────────────────
     // Services
     // ──────────────────────────────────────────────
-    private readonly WindowsSpeechTranscriptionProvider _speechProvider;
-    private readonly TargetContextService _targetContextService;
-    private readonly InsertionAdapterChain _insertionChain;
-    private readonly TranscriptReconciler _reconciler;
+    private readonly WindowsSpeechTranscriptionProvider? _speechProvider;
+    private readonly TargetContextService? _targetContextService;
+    private readonly InsertionAdapterChain? _insertionChain;
+    private readonly TranscriptReconciler? _reconciler;
 
     // State
     private volatile bool _isDictating;
