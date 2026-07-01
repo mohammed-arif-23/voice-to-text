@@ -1,0 +1,7 @@
+INITIALIZATION FAILED:
+System.InvalidCastException: Specified cast is not valid.
+   at System.Runtime.InteropServices.Marshal.ThrowExceptionForHR(Int32 errorCode)
+   at NAudio.CoreAudioApi.MMDeviceEnumerator.QueryNotificationClientInterface(IMMNotificationClient client)
+   at NAudio.CoreAudioApi.MMDeviceEnumerator.RegisterEndpointNotificationCallback(IMMNotificationClient client)
+   at Desktop.Audio.WasapiAudioCaptureService..ctor() in E:\voice-to-text\voice-to-text\src\Desktop.Audio\WasapiAudioCaptureService.cs:line 42
+   at DesktopApp.MainWindow..ctor() in E:\voice-to-text\voice-to-text\src\DesktopApp\MainWindow.xaml.cs:line 61
