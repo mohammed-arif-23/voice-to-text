@@ -97,17 +97,24 @@ public partial class MainWindow : Window
         RegisterCapslockHotkey(helper.Handle);
     }
 
+    private const int HOTKEY_ID_CTRL_ALT_D = 9001;
+    private const uint VK_D = 0x44;
+    private const uint MOD_ALT = 0x0001;
+    private const uint MOD_CONTROL = 0x0002;
+
     private void RegisterCapslockHotkey(IntPtr hwnd)
     {
-        // Register VK_CAPITAL (Caps Lock) without modifiers
+        // Try to register Caps Lock
         RegisterHotKey(hwnd, HOTKEY_ID, 0, VK_CAPITAL);
+        // Register Ctrl+Alt+D as fallback
+        RegisterHotKey(hwnd, HOTKEY_ID_CTRL_ALT_D, MOD_CONTROL | MOD_ALT, VK_D);
     }
 
     private IntPtr HwndMessageHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         const int WM_HOTKEY = 0x0312;
 
-        if (msg == WM_HOTKEY && wParam.ToInt32() == HOTKEY_ID)
+        if (msg == WM_HOTKEY && (wParam.ToInt32() == HOTKEY_ID || wParam.ToInt32() == HOTKEY_ID_CTRL_ALT_D))
         {
             if (!_isDictating)
             {
@@ -285,6 +292,7 @@ public partial class MainWindow : Window
     {
         var helper = new WindowInteropHelper(this);
         UnregisterHotKey(helper.Handle, HOTKEY_ID);
+        UnregisterHotKey(helper.Handle, HOTKEY_ID_CTRL_ALT_D);
         _audioCapture.Dispose();
         _transcriptionProvider.Dispose();
     }
