@@ -15,6 +15,8 @@ using NAudio.Wave;
 
 namespace Desktop.Audio;
 
+[ComVisible(true)]
+[Guid("9F19E529-6C2A-4C21-827D-5A8E5C3B4E2B")]
 public class WasapiAudioCaptureService : IAudioCaptureService, IMMNotificationClient, IDisposable
 {
     public event Action<AudioDeviceChangedEvent>? DeviceChanged;
@@ -41,13 +43,9 @@ public class WasapiAudioCaptureService : IAudioCaptureService, IMMNotificationCl
         {
             _deviceEnumerator.RegisterEndpointNotificationCallback(this);
         }
-        catch (COMException)
+        catch (Exception)
         {
-            // Fallback for environments where registering notifications is unsupported
-        }
-        catch (InvalidOperationException)
-        {
-            // Fallback
+            // Failover cleanly if native device notification subscription is blocked or fails on this host
         }
     }
 
