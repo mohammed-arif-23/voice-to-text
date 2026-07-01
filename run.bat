@@ -2,23 +2,31 @@
 title Universal Dictation - Startup Manager
 cls
 echo ===================================================
+echo   Building Universal Dictation Solution...
+echo ===================================================
+dotnet build UniversalDictation.sln -c Release -v q
+if %ERRORLEVEL% neq 0 (
+    echo.
+    echo [ERROR] Build failed. Please fix compilation issues first.
+    pause
+    exit /b %ERRORLEVEL%
+)
+
+echo.
+echo ===================================================
 echo   Starting Universal Dictation Application Services
 echo ===================================================
 
 echo.
-echo [1/3] Starting Control Plane API...
-start "Universal Dictation Control Plane" dotnet run --project src/ControlPlane.Api/ControlPlane.Api.csproj --configuration Release
+echo [1/2] Starting Control Plane API...
+start "Universal Dictation Control Plane" "src\ControlPlane.Api\bin\Release\net10.0\ControlPlane.Api.exe"
 
 echo.
-echo [2/3] Waiting for Control Plane to initialize...
-timeout /t 5 /nobreak > nul
-
-echo.
-echo [3/3] Launching WPF Desktop UI Overlay...
-start "Universal Dictation Client" dotnet run --project src/DesktopApp/DesktopApp.csproj --configuration Release
+echo [2/2] Launching WPF Desktop UI Overlay...
+start "Universal Dictation Client" "src\DesktopApp\bin\Release\net10.0-windows10.0.19041\DesktopApp.exe"
 
 echo.
 echo ===================================================
 echo   All services launched successfully.
 echo ===================================================
-pause
+exit /b 0
