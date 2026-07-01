@@ -1,5 +1,10 @@
+#nullable disable
+// Nullable analysis disabled: WPF UI code with fields initialized inside try-catch.
+// The catch path calls Application.Current.Shutdown() so null fields are never reached at runtime.
+
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows;
@@ -53,18 +58,16 @@ public partial class MainWindow : Window
     private const uint MOD_CONTROL = 0x0002;
 
     // ──────────────────────────────────────────────
-    // Services — assigned in constructor; catch path calls Shutdown
+    // Services
     // ──────────────────────────────────────────────
-#pragma warning disable CS8618  // Non-nullable field not initialized — set inside try block
     private WindowsSpeechTranscriptionProvider _speechProvider;
     private TargetContextService _targetContextService;
     private InsertionAdapterChain _insertionChain;
     private TranscriptReconciler _reconciler;
-#pragma warning restore CS8618
 
     // State
     private volatile bool _isDictating;
-    private TargetContext _capturedContext;   // null is fine — checked before use
+    private TargetContext _capturedContext;
 
     // ──────────────────────────────────────────────
     // Constructor
@@ -86,9 +89,9 @@ public partial class MainWindow : Window
 
             var adapters = new List<ITextInsertionAdapter>
             {
-                new UiaValuePatternAdapter(),  // UI Automation (most apps)
-                new SendInputAdapter(),         // Raw keyboard simulation
-                new ClipboardFallbackAdapter()  // Clipboard + Ctrl+V (ultimate fallback)
+                new UiaValuePatternAdapter(),
+                new SendInputAdapter(),
+                new ClipboardFallbackAdapter()
             };
             _insertionChain = new InsertionAdapterChain(adapters);
 
@@ -110,7 +113,6 @@ public partial class MainWindow : Window
     {
         try
         {
-            // Position bottom-right, above the taskbar
             var workArea = SystemParameters.WorkArea;
             Left = workArea.Right - Width  - 16;
             Top  = workArea.Bottom - Height - 16;
@@ -118,15 +120,12 @@ public partial class MainWindow : Window
             var helper = new WindowInteropHelper(this);
             IntPtr hwnd = helper.Handle;
 
-            // Prevent overlay from stealing focus from the user's text field
             int exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
             SetWindowLong(hwnd, GWL_EXSTYLE, exStyle | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW);
 
-            // Hook window messages to receive WM_HOTKEY
             HwndSource source = HwndSource.FromHwnd(hwnd);
             source.AddHook(HwndMessageHook);
 
-            // Register all hotkeys
             RegisterHotKey(hwnd, HOTKEY_CAPSLOCK,   0,                       VK_CAPITAL);
             RegisterHotKey(hwnd, HOTKEY_CTRL_ALT_D, MOD_CONTROL | MOD_ALT,   VK_D);
             RegisterHotKey(hwnd, HOTKEY_F9,         0,                       VK_F9);
@@ -158,12 +157,11 @@ public partial class MainWindow : Window
 
         if (_isDictating)
         {
-            // User pressed hotkey again to cancel early
             StopDictation(false);
         }
         else
         {
-            // ⚡ Capture target window BEFORE any UI changes steal focus
+            // Capture target window BEFORE any UI changes steal focus
             try   { _capturedContext = _targetContextService.CaptureContext(); }
             catch { _capturedContext = null; }
 
@@ -184,7 +182,6 @@ public partial class MainWindow : Window
 
         SetCapturing();
 
-        // Kick off SAPI on a background thread — never block the UI
         Task.Run(() =>
         {
             try
@@ -193,14 +190,13 @@ public partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                // Most common cause: no microphone is configured in Windows Settings
                 Dispatcher.Invoke(() => HandleError("Microphone error: " + ex.Message));
             }
         });
     }
 
     // ──────────────────────────────────────────────
-    // Stop dictation (called from UI thread or background thread)
+    // Stop dictation
     // ──────────────────────────────────────────────
     private void StopDictation(bool insertText)
     {
@@ -217,7 +213,6 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Insert text on a background thread — never block the UI
         Task.Run(async () =>
         {
             try
@@ -232,7 +227,6 @@ public partial class MainWindow : Window
                     return;
                 }
 
-                // Show green INSERTING indicator
                 Dispatcher.Invoke(() =>
                 {
                     StatusIndicator.Fill = new SolidColorBrush(Color.FromRgb(48, 209, 88));
@@ -240,7 +234,6 @@ public partial class MainWindow : Window
                     TranscriptText.Text = text;
                 });
 
-                // Brief delay so Windows focus returns to the original text field
                 await Task.Delay(200);
 
                 bool inserted = false;
@@ -262,7 +255,6 @@ public partial class MainWindow : Window
                     catch (Exception ex) { LogError("INSERT", ex); }
                 }
 
-                // Ultimate fallback: clipboard paste
                 if (!inserted)
                     await TryClipboardPaste(text);
 
@@ -281,8 +273,6 @@ public partial class MainWindow : Window
     // ──────────────────────────────────────────────
     // SAPI event handlers
     // ──────────────────────────────────────────────
-
-    // Interim partial results — update UI live as the user speaks
     private void OnSegmentReceived(TranscriptSegment segment)
     {
         _reconciler.AddSegment(segment);
@@ -296,7 +286,6 @@ public partial class MainWindow : Window
             TranscriptText.Text = string.IsNullOrWhiteSpace(display) ? "Listening..." : display);
     }
 
-    // Auto-stop fired by SAPI after 2 seconds of silence
     private void OnRecognitionCompleted()
     {
         if (!_isDictating) return;
@@ -316,8 +305,8 @@ public partial class MainWindow : Window
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);
 
-    private const byte VK_CONTROL    = 0x11;
-    private const byte VK_V          = 0x56;
+    private const byte VK_CONTROL      = 0x11;
+    private const byte VK_V            = 0x56;
     private const uint KEYEVENTF_KEYUP = 0x0002;
 
     private static async Task TryClipboardPaste(string text)
@@ -345,7 +334,7 @@ public partial class MainWindow : Window
     }
 
     // ──────────────────────────────────────────────
-    // UI state helpers (always called on UI thread)
+    // UI state helpers
     // ──────────────────────────────────────────────
     private void SetCapturing()
     {
@@ -357,7 +346,7 @@ public partial class MainWindow : Window
         });
     }
 
-    private void SetIdle(string message = "Press F9 (or Caps Lock / Ctrl+Alt+D) to dictate")
+    private void SetIdle(string message)
     {
         StatusIndicator.Fill = new SolidColorBrush(Color.FromRgb(142, 142, 147));
         StatusLabel.Text     = "IDLE";
@@ -381,7 +370,7 @@ public partial class MainWindow : Window
         {
             System.IO.File.WriteAllText(
                 "desktop_app_error.txt",
-                "[" + context + "] " + DateTime.Now.ToString("HH:mm:ss") + "\r\n" + ex + "\r\n");
+                "[" + context + "] " + DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + "\r\n" + ex + "\r\n");
         }
         catch { /* ignore */ }
     }
