@@ -40,12 +40,12 @@ public partial class MainWindow : Window
     private const int HOTKEY_ID = 9000;
     private const uint VK_CAPITAL = 0x14; // Caps Lock
 
-    private readonly WasapiAudioCaptureService _audioCapture;
-    private readonly DeepgramTranscriptionProvider _transcriptionProvider;
-    private readonly TargetContextService _targetContextService;
-    private readonly InsertionAdapterChain _insertionChain;
-    private readonly TranscriptReconciler _reconciler;
-    private readonly DictationSessionStateMachine _stateMachine;
+    private readonly WasapiAudioCaptureService? _audioCapture;
+    private readonly DeepgramTranscriptionProvider? _transcriptionProvider;
+    private readonly TargetContextService? _targetContextService;
+    private readonly InsertionAdapterChain? _insertionChain;
+    private readonly TranscriptReconciler? _reconciler;
+    private readonly DictationSessionStateMachine? _stateMachine;
     private CancellationTokenSource? _captureCts;
 
     private TargetContext? _capturedContext;
@@ -53,48 +53,66 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
-        InitializeComponent();
-
-        _stateMachine = new DictationSessionStateMachine();
-        _audioCapture = new WasapiAudioCaptureService();
-        _transcriptionProvider = new DeepgramTranscriptionProvider();
-        _targetContextService = new TargetContextService();
-        _reconciler = new TranscriptReconciler();
-
-        var adapters = new List<ITextInsertionAdapter>
+        try
         {
-            new BrowserExtensionAdapter { ExtensionConnected = false },
-            new UiaValuePatternAdapter(),
-            new SendInputAdapter(),
-            new ClipboardFallbackAdapter()
-        };
-        _insertionChain = new InsertionAdapterChain(adapters);
+            InitializeComponent();
 
-        _transcriptionProvider.SegmentReceived += OnSegmentReceived;
-        _transcriptionProvider.ErrorOccurred += OnTranscriptionError;
-        _audioCapture.BufferOverflow += OnAudioOverflow;
+            _stateMachine = new DictationSessionStateMachine();
+            _audioCapture = new WasapiAudioCaptureService();
+            _transcriptionProvider = new DeepgramTranscriptionProvider();
+            _targetContextService = new TargetContextService();
+            _reconciler = new TranscriptReconciler();
 
-        Loaded += OnLoaded;
-        Closing += OnClosing;
+            var adapters = new List<ITextInsertionAdapter>
+            {
+                new BrowserExtensionAdapter { ExtensionConnected = false },
+                new UiaValuePatternAdapter(),
+                new SendInputAdapter(),
+                new ClipboardFallbackAdapter()
+            };
+            _insertionChain = new InsertionAdapterChain(adapters);
+
+            _transcriptionProvider.SegmentReceived += OnSegmentReceived;
+            _transcriptionProvider.ErrorOccurred += OnTranscriptionError;
+            _audioCapture.BufferOverflow += OnAudioOverflow;
+
+            Loaded += OnLoaded;
+            Closing += OnClosing;
+        }
+        catch (Exception ex)
+        {
+            System.IO.File.WriteAllText("desktop_app_error.txt", "INITIALIZATION FAILED:\r\n" + ex.ToString());
+            MessageBox.Show("Initialization error: " + ex.Message + "\nDetails written to desktop_app_error.txt");
+            Application.Current.Shutdown();
+        }
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // Position window near System Tray (bottom right)
-        var desktopWorkingArea = SystemParameters.WorkArea;
-        Left = desktopWorkingArea.Right - Width - 10;
-        Top = desktopWorkingArea.Bottom - Height - 10;
+        try
+        {
+            // Position window near System Tray (bottom right)
+            var desktopWorkingArea = SystemParameters.WorkArea;
+            Left = desktopWorkingArea.Right - Width - 10;
+            Top = desktopWorkingArea.Bottom - Height - 10;
 
-        // Apply WS_EX_NOACTIVATE to prevent focus stealing
-        var helper = new WindowInteropHelper(this);
-        int exStyle = GetWindowLong(helper.Handle, GWL_EXSTYLE);
-        SetWindowLong(helper.Handle, GWL_EXSTYLE, exStyle | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW);
+            // Apply WS_EX_NOACTIVATE to prevent focus stealing
+            var helper = new WindowInteropHelper(this);
+            int exStyle = GetWindowLong(helper.Handle, GWL_EXSTYLE);
+            SetWindowLong(helper.Handle, GWL_EXSTYLE, exStyle | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW);
 
-        // Bind hotkey
-        HwndSource source = HwndSource.FromHwnd(helper.Handle);
-        source.AddHook(HwndMessageHook);
+            // Bind hotkey
+            HwndSource source = HwndSource.FromHwnd(helper.Handle);
+            source.AddHook(HwndMessageHook);
 
-        RegisterCapslockHotkey(helper.Handle);
+            RegisterCapslockHotkey(helper.Handle);
+        }
+        catch (Exception ex)
+        {
+            System.IO.File.WriteAllText("desktop_app_error.txt", "ONLOADED EXCEPTION:\r\n" + ex.ToString());
+            MessageBox.Show("OnLoaded error: " + ex.Message + "\nDetails written to desktop_app_error.txt");
+            Application.Current.Shutdown();
+        }
     }
 
     private const int HOTKEY_ID_CTRL_ALT_D = 9001;
@@ -145,12 +163,12 @@ public partial class MainWindow : Window
     private void StartDictationFlow()
     {
         _isDictating = true;
-        _reconciler.Clear();
+        _reconciler?.Clear();
 
         try
         {
             // Capture focus context
-            _capturedContext = _targetContextService.CaptureContext();
+            _capturedContext = _targetContextService?.CaptureContext();
 
             // Set UI State
             Dispatcher.Invoke(() =>
@@ -160,13 +178,13 @@ public partial class MainWindow : Window
                 TranscriptText.Text = "Listening...";
             });
 
-            _stateMachine.TransitionTo(DictationState.Arming);
-            _audioCapture.StartCapture("Default Mic");
-            _stateMachine.TransitionTo(DictationState.Capturing);
+            _stateMachine?.TransitionTo(DictationState.Arming);
+            _audioCapture?.StartCapture("Default Mic");
+            _stateMachine?.TransitionTo(DictationState.Capturing);
 
             // Connect Deepgram
-            _stateMachine.TransitionTo(DictationState.Streaming);
-            _transcriptionProvider.ConnectAsync("dg_valid_key", CancellationToken.None).GetAwaiter().GetResult();
+            _stateMachine?.TransitionTo(DictationState.Streaming);
+            _transcriptionProvider?.ConnectAsync("dg_valid_key", CancellationToken.None).GetAwaiter().GetResult();
 
             _captureCts = new CancellationTokenSource();
             Task.Run(() => StreamAudioAsync(_captureCts.Token));
@@ -179,6 +197,7 @@ public partial class MainWindow : Window
 
     private async Task StreamAudioAsync(CancellationToken token)
     {
+        if (_audioCapture == null || _transcriptionProvider == null) return;
         try
         {
             await foreach (var frame in _audioCapture.StreamFramesAsync(token))
@@ -199,11 +218,11 @@ public partial class MainWindow : Window
 
         try
         {
-            _stateMachine.TransitionTo(DictationState.Finalizing);
-            _audioCapture.StopCapture();
-            _transcriptionProvider.DisconnectAsync().GetAwaiter().GetResult();
+            _stateMachine?.TransitionTo(DictationState.Finalizing);
+            _audioCapture?.StopCapture();
+            _transcriptionProvider?.DisconnectAsync().GetAwaiter().GetResult();
 
-            string textToInsert = _reconciler.GetReconciledText();
+            string textToInsert = _reconciler?.GetReconciledText() ?? "";
 
             if (string.IsNullOrWhiteSpace(textToInsert))
             {
@@ -211,16 +230,16 @@ public partial class MainWindow : Window
                 return;
             }
 
-            _stateMachine.TransitionTo(DictationState.ReadyToInsert);
+            _stateMachine?.TransitionTo(DictationState.ReadyToInsert);
 
             // Revalidate Target Context
-            if (_capturedContext != null)
+            if (_capturedContext != null && _targetContextService != null && _insertionChain != null)
             {
-                _stateMachine.TransitionTo(DictationState.ValidatingTarget);
+                _stateMachine?.TransitionTo(DictationState.ValidatingTarget);
                 _targetContextService.Revalidate(_capturedContext);
 
                 // Insert Text
-                _stateMachine.TransitionTo(DictationState.Inserting);
+                _stateMachine?.TransitionTo(DictationState.Inserting);
                 var enabledAdapters = new List<AdapterKind>
                 {
                     AdapterKind.BrowserExtension,
@@ -229,12 +248,12 @@ public partial class MainWindow : Window
                     AdapterKind.ClipboardFallback
                 };
 
-                _stateMachine.TransitionTo(DictationState.Verifying);
+                _stateMachine?.TransitionTo(DictationState.Verifying);
                 var result = _insertionChain.ExecuteAsync(textToInsert, _capturedContext, enabledAdapters).GetAwaiter().GetResult();
 
                 if (result.Success)
                 {
-                    _stateMachine.TransitionTo(DictationState.Completed);
+                    _stateMachine?.TransitionTo(DictationState.Completed);
                     ResetToIdle("Text inserted!");
                 }
                 else
@@ -251,8 +270,8 @@ public partial class MainWindow : Window
 
     private void OnSegmentReceived(TranscriptSegment segment)
     {
-        _reconciler.AddSegment(segment);
-        string currentText = _reconciler.GetReconciledText();
+        _reconciler?.AddSegment(segment);
+        string currentText = _reconciler?.GetReconciledText() ?? "";
 
         Dispatcher.Invoke(() =>
         {
@@ -277,7 +296,7 @@ public partial class MainWindow : Window
     {
         _isDictating = false;
         _captureCts?.Cancel();
-        _stateMachine.TransitionTo(DictationState.FatalFailure);
+        _stateMachine?.TransitionTo(DictationState.FatalFailure);
 
         Dispatcher.Invoke(() =>
         {
@@ -286,12 +305,12 @@ public partial class MainWindow : Window
             TranscriptText.Text = message;
         });
 
-        Task.Delay(3000).ContinueWith(_ => ResetToIdle("Press Caps Lock to dictate..."));
+        Task.Delay(3000).ContinueWith(_ => ResetToIdle("Press Caps Lock to dictate..."), TaskScheduler.Default);
     }
 
     private void ResetToIdle(string placeholderText)
     {
-        _stateMachine.TransitionTo(DictationState.Idle);
+        _stateMachine?.TransitionTo(DictationState.Idle);
         Dispatcher.Invoke(() =>
         {
             StatusIndicator.Fill = new SolidColorBrush(Color.FromRgb(142, 142, 147)); // Gray
@@ -307,7 +326,7 @@ public partial class MainWindow : Window
         UnregisterHotKey(helper.Handle, HOTKEY_ID_CTRL_ALT_D);
         UnregisterHotKey(helper.Handle, HOTKEY_ID_F9);
         UnregisterHotKey(helper.Handle, HOTKEY_ID_F10);
-        _audioCapture.Dispose();
-        _transcriptionProvider.Dispose();
+        _audioCapture?.Dispose();
+        _transcriptionProvider?.Dispose();
     }
 }
