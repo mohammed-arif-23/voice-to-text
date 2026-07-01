@@ -1,12 +1,35 @@
-﻿<Window x:Class="DesktopApp.MainWindow"
+<Window x:Class="DesktopApp.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:DesktopApp"
-        mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
-    <Grid>
+        Title="Universal Dictation Overlay" 
+        Height="80" 
+        Width="350" 
+        WindowStyle="None" 
+        AllowsTransparency="True" 
+        Background="Transparent" 
+        Topmost="True" 
+        ShowInTaskbar="False"
+        ResizeMode="NoResize">
+    <Border CornerRadius="12" BorderThickness="1.5" Background="#EE1E1E24" BorderBrush="#33FFFFFF">
+        <Grid Margin="12,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
 
-    </Grid>
+            <!-- Status Indicator Ring -->
+            <Ellipse x:Name="StatusIndicator" Grid.Column="0" Width="14" Height="14" Fill="#FF626266" Margin="0,0,12,0" VerticalAlignment="Center">
+                <Ellipse.Effect>
+                    <BlurEffect Radius="6"/>
+                </Ellipse.Effect>
+            </Ellipse>
+
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                <!-- Status Label -->
+                <TextBlock x:Name="StatusLabel" Text="IDLE" FontWeight="SemiBold" FontSize="11" Foreground="#FF8E8E93"/>
+                <!-- Live Transcript Text -->
+                <TextBlock x:Name="TranscriptText" Text="Press Caps Lock to dictate..." FontSize="13" Foreground="#FFFFFFFF" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+            </StackPanel>
+        </Grid>
+    </Border>
 </Window>
