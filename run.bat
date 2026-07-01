@@ -1,6 +1,10 @@
 @echo off
 title Universal Dictation - Startup Manager
 cls
+
+:: Change directory to the folder where this batch script is located
+cd /d "%~dp0"
+
 echo ===================================================
 echo   Stopping existing application processes...
 echo ===================================================
