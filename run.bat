@@ -2,6 +2,13 @@
 title Universal Dictation - Startup Manager
 cls
 echo ===================================================
+echo   Stopping existing application processes...
+echo ===================================================
+taskkill /f /im ControlPlane.Api.exe 2>nul
+taskkill /f /im DesktopApp.exe 2>nul
+
+echo.
+echo ===================================================
 echo   Building Universal Dictation Solution...
 echo ===================================================
 dotnet build UniversalDictation.sln -c Release -v q
